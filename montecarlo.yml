@@ -1,0 +1,116 @@
+cat <<EOF | kubectl apply -f -
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    metadata:
+      labels:
+        intent: apps
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand", "spot"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: NotIn
+          values: [nano, micro, small, medium, large]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64","arm64"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+  limits:
+    cpu: 1000
+    memory: 1000Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 0s
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  subnetSelectorTerms:          
+    - tags:
+        karpenter.sh/discovery: "eksspotworkshop"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "eksspotworkshop"
+  role: "Karpenter-eksspotworkshop"
+  tags:
+    Name: karpenter.sh/nodepool/default
+    NodeType: "karpenter-workshop"
+    IntentLabel: "apps"
+EOF
+
+
+cd /Workshop
+cat <<EoF > monte-carlo-pi-service.yaml
+---
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: monte-carlo-pi-service 
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
+spec: 
+  type: LoadBalancer 
+  ports: 
+    - port: 80 
+      targetPort: 8080 
+  selector: 
+    app: monte-carlo-pi-service 
+--- 
+apiVersion: apps/v1 
+kind: Deployment 
+metadata: 
+  name: monte-carlo-pi-service 
+  labels: 
+    app: monte-carlo-pi-service 
+spec: 
+  replicas: 2 
+  selector: 
+    matchLabels: 
+      app: monte-carlo-pi-service 
+  template: 
+    metadata: 
+      labels: 
+        app: monte-carlo-pi-service 
+    spec:
+      nodeSelector:
+        intent: apps
+        kubernetes.io/arch: arm64
+        karpenter.sh/capacity-type: spot
+      containers: 
+        - name: monte-carlo-pi-service 
+          image: public.ecr.aws/aws-containers/retail-store-sample-ui:0.8.2
+          resources: 
+            requests: 
+              memory: "512Mi" 
+              cpu: "1024m" 
+            limits: 
+              memory: "512Mi" 
+              cpu: "1024m" 
+          securityContext: 
+            privileged: false 
+            readOnlyRootFilesystem: true 
+            allowPrivilegeEscalation: false 
+          ports: 
+            - containerPort: 8080 
+EoF
+kubectl apply -f monte-carlo-pi-service.yaml
+
+
