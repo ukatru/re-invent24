@@ -1,0 +1,79 @@
+export FIS_EXP_NAME=fis-karpenter-spot-interruption
+cat <<EoF > fis-karpenter.yaml
+AWSTemplateFormatVersion: 2010-09-09
+Description: FIS for Spot Instances
+Parameters:
+  InstancesToInterrupt:
+    Description: Number of instances to interrupt
+    Default: 1
+    Type: Number
+
+  DurationBeforeInterruption:
+    Description: Number of minutes before the interruption
+    Default: 3
+    Type: Number
+
+Resources:
+  FISSpotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: FISSpotRole
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [fis.amazonaws.com]
+          Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 'ec2:DescribeInstances'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'ec2:SendSpotInstanceInterruptions'
+                Resource: 'arn:aws:ec2:*:*:instance/*'
+
+  FISExperimentTemplate:
+    Type: AWS::FIS::ExperimentTemplate
+    Properties:       
+      Description: "Interrupt a spot instance with EKS label intent:apps"
+      Targets: 
+        SpotIntances:
+          ResourceTags: 
+            IntentLabel: apps
+          Filters:
+            - Path: State.Name
+              Values: 
+              - running
+          ResourceType: aws:ec2:spot-instance
+          SelectionMode: !Join ["", ["COUNT(", !Ref InstancesToInterrupt, ")"]]
+      Actions: 
+        interrupt:
+          ActionId: "aws:ec2:send-spot-instance-interruptions"
+          Description: "Interrupt a Spot instance"
+          Parameters: 
+            durationBeforeInterruption: !Join ["", ["PT", !Ref DurationBeforeInterruption, "M"]]
+          Targets: 
+            SpotInstances: SpotIntances
+      StopConditions:
+        - Source: none
+      RoleArn: !GetAtt FISSpotRole.Arn
+      Tags: 
+        Name: "${FIS_EXP_NAME}"
+
+Outputs:
+  FISExperimentID:
+    Value: !GetAtt FISExperimentTemplate.Id
+EoF
+
+
+
+aws cloudformation create-stack --stack-name $FIS_EXP_NAME --template-body file://fis-karpenter.yaml --capabilities CAPABILITY_NAMED_IAM
+aws cloudformation wait stack-create-complete --stack-name $FIS_EXP_NAME
+
+FIS_EXP_TEMP_ID=$(aws cloudformation describe-stacks --stack-name $FIS_EXP_NAME --query "Stacks[0].Outputs[?OutputKey=='FISExperimentID'].OutputValue" --output text)
+FIS_EXP_ID=$(aws fis start-experiment --experiment-template-id $FIS_EXP_TEMP_ID --no-cli-pager --query "experiment.id" --output text)
