@@ -1,0 +1,26 @@
+Karpenter for groupless provisioning
+
+Karpenter NodePool
+
+- key: karpenter.sh/capacity-type
+
+karpenter uses EC2 Fleet instant api
+
+karpenter variables:
+
+https://karpenter.sh/docs/reference/settings/
+
+kubectl -n karpenter get deploy/karpenter -o yaml
+
+karpenter logs
+alias kl='kubectl -n karpenter logs -l app.kubernetes.io/name=karpenter --all-containers=true -f --tail=20'
+
+kubectl get node --selector=intent=apps -L kubernetes.io/arch -L node.kubernetes.io/instance-type -L karpenter.sh/nodepool -L topology.kubernetes.io/zone -L karpenter.sh/capacity-type
+
+kubectl autoscale deployment monte-carlo-pi-service --cpu-percent=50 --min=3 --max=10
+
+URL=$(kubectl get svc monte-carlo-pi-service | tail -n 1 | awk '{ print $4 }')
+hey -c 1 -n 1 "http://${URL}/utility/stress/1000000"
+
+URL=$(kubectl get svc monte-carlo-pi-service | tail -n 1 | awk '{ print $4 }')
+hey -c 3 -n 3000 -z 5m "http://${URL}/utility/stress/1000000"
