@@ -1,0 +1,189 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    meta.helm.sh/release-name: karpenter
+    meta.helm.sh/release-namespace: karpenter
+  creationTimestamp: "2024-12-01T17:21:03Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/instance: karpenter
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: karpenter
+    app.kubernetes.io/version: 1.0.2
+    helm.sh/chart: karpenter-1.0.2
+  name: karpenter
+  namespace: karpenter
+  resourceVersion: "3646"
+  uid: 68409e03-508e-40af-bebc-9e52d198d3ea
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: karpenter
+      app.kubernetes.io/name: karpenter
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/instance: karpenter
+        app.kubernetes.io/name: karpenter
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: karpenter.sh/nodepool
+                operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: karpenter
+                app.kubernetes.io/name: karpenter
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - env:
+        - name: KUBERNETES_MIN_VERSION
+          value: 1.19.0-0
+        - name: KARPENTER_SERVICE
+          value: karpenter
+        - name: WEBHOOK_PORT
+          value: "8443"
+        - name: WEBHOOK_METRICS_PORT
+          value: "8001"
+        - name: DISABLE_WEBHOOK
+          value: "false"
+        - name: LOG_LEVEL
+          value: info
+        - name: METRICS_PORT
+          value: "8080"
+        - name: HEALTH_PROBE_PORT
+          value: "8081"
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: MEMORY_LIMIT
+          valueFrom:
+            resourceFieldRef:
+              containerName: controller
+              divisor: "0"
+              resource: limits.memory
+        - name: FEATURE_GATES
+          value: SpotToSpotConsolidation=false
+        - name: BATCH_MAX_DURATION
+          value: 10s
+        - name: BATCH_IDLE_DURATION
+          value: 1s
+        - name: CLUSTER_NAME
+          value: eksspotworkshop
+        - name: CLUSTER_ENDPOINT
+          value: https://86BF587A48CEDACBF061EFD9C6100F45.gr7.us-west-2.eks.amazonaws.com
+        - name: VM_MEMORY_OVERHEAD_PERCENT
+          value: "0.075"
+        - name: INTERRUPTION_QUEUE
+          value: karpenter-eksspotworkshop
+        - name: RESERVED_ENIS
+          value: "0"
+        image: public.ecr.aws/karpenter/controller:1.0.2@sha256:dd095cdcf857c3812f2084a7b20294932f461b0bff912acf58d592faa032fbef
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 30
+        name: controller
+        ports:
+        - containerPort: 8080
+          name: http-metrics
+          protocol: TCP
+        - containerPort: 8001
+          name: webhook-metrics
+          protocol: TCP
+        - containerPort: 8443
+          name: https-webhook
+          protocol: TCP
+        - containerPort: 8081
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 30
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 65532
+      serviceAccount: karpenter
+      serviceAccountName: karpenter
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/instance: karpenter
+            app.kubernetes.io/name: karpenter
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+status:
+  availableReplicas: 2
+  conditions:
+  - lastTransitionTime: "2024-12-01T17:21:14Z"
+    lastUpdateTime: "2024-12-01T17:21:14Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2024-12-01T17:21:03Z"
+    lastUpdateTime: "2024-12-01T17:21:14Z"
+    message: ReplicaSet "karpenter-6d4bdcc9c5" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  observedGeneration: 1
+  readyReplicas: 2
+  replicas: 2
+  updatedReplicas: 2
