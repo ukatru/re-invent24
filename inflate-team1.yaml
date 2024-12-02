@@ -1,0 +1,39 @@
+cat <<EOF > inflate-team1.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate-team1
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: inflate-team1
+  template:
+    metadata:
+      labels:
+        app: inflate-team1
+    spec:
+      nodeSelector:
+        intent: apps
+        kubernetes.io/arch: amd64
+        karpenter.sh/nodepool: team1
+      containers:
+      - image: public.ecr.aws/eks-distro/kubernetes/pause:3.2
+        name: inflate-team1
+        resources:
+          requests:
+            cpu: "1"
+            memory: 256M
+      tolerations:
+      - key: team1
+        operator: Exists
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: inflate-team1
+        maxSkew: 1
+        minDomains: 3
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+EOF
+kubectl apply -f inflate-team1.yaml
