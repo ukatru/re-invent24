@@ -1,0 +1,157 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Constants
+SCRIPT_NAME=$(basename "$0")
+LOG_PREFIX="[${SCRIPT_NAME}]"
+
+# Required environment variables
+required_vars=(
+    "CI_PROJECT_ID"
+    "CI_COMMIT_REF_NAME"
+    "TARGET_BRANCH"
+    "REMOVE_SOURCE_BRANCH"
+    "GITLAB_USER_ID"
+    "GITLAB_ROOT"
+    "GITLAB_PRIVATE_TOKEN"
+)
+
+# Functions
+log() {
+    echo "${LOG_PREFIX} $1"
+}
+
+error() {
+    echo "${LOG_PREFIX} ERROR: $1" >&2
+    exit 1
+}
+
+check_required_vars() {
+    local missing=()
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var:-}" ]]; then
+            missing+=("$var")
+        fi
+    done
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "Missing required environment variables: ${missing[*]}"
+    fi
+}
+
+cleanup_terraform_output() {
+    local file="$1"
+    local cleaned_file="${file}.cleaned"
+    
+    # Create a copy to work on
+    cp "$file" "$cleaned_file"
+    
+    # Remove common Terraform output that's not useful
+    sed -i \
+        -e '/Terraform used the selected providers to generate/,/---------------------------------------------------------------------/d' \
+        -e '/This means that/,/actions need to be performed/d' \
+        -e '/Note: you didn/,/is subsequently run\./d' \
+        -e '/Releasing state lock/,/moments\.\.\./d' \
+        -e '/Terraform has compared your real infrastructure against your configuration and found no differences/d' \
+        "$cleaned_file"
+    
+    # Add HTML formatting
+    sed -i '1i<pre>' "$cleaned_file"
+    echo '</pre>' >> "$cleaned_file"
+    
+    # Clean up ANSI color codes and escape quotes
+    cat "$cleaned_file" | \
+        sed 's/\x1b\[[0-9;]*m//g' | \
+        sed "s/\\\\\"/'/g" | \
+        sed "s/\"/'/g" | \
+        sed 's/$/\\n/' | \
+        tr -d '\n'
+    
+    rm -f "$cleaned_file"
+}
+
+process_terraform_files() {
+    local tf_files=()
+    local count=0
+    
+    # Process all terraform plan files
+    for file in terraform-plan.*.txt; do
+        if [[ -f "$file" ]]; then
+            log "Processing Terraform plan file: $file"
+            tf_files[$count]=$(cleanup_terraform_output "$file")
+            ((count++))
+        fi
+    done
+    
+    printf '%s' "${tf_files[@]}"
+}
+
+check_existing_mr() {
+    local response
+    response=$(curl --silent --fail --insecure \
+        "${GITLAB_ROOT}/merge_requests?state=opened" \
+        --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}")
+    
+    local count
+    count=$(echo "${response}" | grep -o "\"source_branch\":\"${CI_COMMIT_REF_NAME}\"" | wc -l)
+    
+    if [[ $count -gt 0 ]]; then
+        log "Found existing merge request for branch ${CI_COMMIT_REF_NAME}"
+        return 0
+    fi
+    return 1
+}
+
+create_merge_request() {
+    local description="$1"
+    local body="{
+        \"id\": ${CI_PROJECT_ID},
+        \"source_branch\": \"${CI_COMMIT_REF_NAME}\",
+        \"target_branch\": \"${TARGET_BRANCH}\",
+        \"remove_source_branch\": \"${REMOVE_SOURCE_BRANCH}\",
+        \"title\": \"Request to merge source: ${CI_COMMIT_REF_NAME} to ${TARGET_BRANCH}\",
+        \"description\": \"${description}\",
+        \"assignee_id\":\"${GITLAB_USER_ID}\"
+    }"
+    
+    log "Creating merge request..."
+    local response
+    response=$(curl --silent --fail --insecure \
+        "${GITLAB_ROOT}/merge_requests" \
+        --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}" \
+        --header "Content-Type: application/json" \
+        --data "${body}")
+    
+    if [[ $? -eq 0 ]]; then
+        log "Successfully created merge request"
+        echo "${response}"
+        return 0
+    else
+        error "Failed to create merge request: ${response}"
+    fi
+}
+
+main() {
+    log "Starting merge branch process"
+    
+    # Check required environment variables
+    check_required_vars
+    
+    # Process Terraform output files
+    local description
+    description=$(process_terraform_files)
+    
+    # Check for existing merge requests
+    if ! check_existing_mr; then
+        # Create new merge request
+        create_merge_request "${description}"
+    else
+        log "Skipping creation of merge request as one already exists"
+    fi
+    
+    log "Completed successfully"
+}
+
+# Execute main function
+main "$@"
