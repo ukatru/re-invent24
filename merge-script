@@ -1,1 +1,181 @@
 
+module "eks_blueprints_kubernetes_addons" {
+  source  = "aws-ia/eks-blueprints-addons/aws"
+  version = "1.8.0"
+
+  #counter = var.create_addons ? 1 : 0 # Only create if cluster is created
+
+  cluster_name      = module.hub_dev.cluster_name
+  cluster_endpoint  = module.hub_dev.cluster_endpoint
+  cluster_version   = module.hub_dev.cluster_version
+  oidc_provider_arn = module.hub_dev.oidc_provider_arn
+
+  enable_cluster_autoscaler = true
+
+  cluster_autoscaler = {
+    name             = "cluster-autoscaler"
+    chart            = "cluster-autoscaler"
+    chart_version    = "9.29.3"
+    repository       = "https://kubernetes.github.io/autoscaler"
+    description      = "Cluster Autoscaler helm Chart deployment configuration"
+    create_namespace = false
+    namespace        = "kube-system"
+
+    values = [
+      <<-EOT
+        autoDiscovery:
+          clusterName: ${module.hub_dev.cluster_name}
+      EOT
+    ]
+  }
+
+  #enable_metrics_server  = true
+  #
+  #metrics_server  = {
+  #  name = "metrics-server"
+  #  chart         = "metrics-server"
+  #  chart_version = "3.8.2"
+  #  repository    = "https://kubernetes-sigs.github.io/metrics-server/"
+  #  description   = "Metric server helm Chart deployment configuration"
+  #  create_namespace = false
+  #  namespace     = "kube-system"
+  #
+  #  values = [
+  #  <<-EOT
+  #    podDisruptionBudget:
+  #      maxUnavailable: 1
+  #    metrics:
+  #      enabled: true
+  #  EOT
+  #]
+  #
+  #set = [
+  #  {
+  #    name  = "replicas"
+  #    value = 1
+  #  }
+  #]
+  #}
+  #
+  enable_aws_load_balancer_controller = true
+
+  aws_load_balancer_controller = {
+    name             = "aws-load-balancer-controller"
+    chart            = "aws-load-balancer-controller"
+    repository       = "https://aws.github.io/eks-charts"
+    create_namespace = false
+    namespace        = "kube-system"
+    chart_version    = "1.6.1"
+    values = [
+      <<-EOT
+        cluster_name: ${module.hub_dev.cluster_name}
+        enableShield: false
+        enableWaf: false
+        enableWafv2: false
+        region: ${var.aws_region}
+        vpcId: ${data.aws_vpc.selected_vpc.id}
+      EOT
+    ]
+  }
+
+  #
+  enable_external_dns = true
+  external_dns_route53_zone_arns = [aws_route53_zone.route53_zone.arn]
+  external_dns = {
+    repository    = "https://kubernetes-sigs.github.io/external-dns/"
+    chart         = "external-dns"
+    chart_version = "1.15.2"
+    namespace     = "external-dns"
+    values = [
+      <<-EOT
+        provider: aws
+        policy: sync
+        registry: txt
+        txtOwnerId: ${module.hub_dev.cluster_name}
+        sources: ["service", "ingress"]
+        aws:
+          region: ${var.aws_region}
+          zoneType: public
+          vpc:
+            id: ${data.aws_vpc.selected_vpc.id}
+      EOT
+    ]
+  }
+
+  enable_argocd = true
+  argocd = {
+    chart            = "argo-cd"
+    repository       = "https://argoproj.github.io/argo-helm"
+    create_namespace = true
+    namespace        = "argocd"
+    chart_version    = "7.7.10"
+    values = [
+      <<-EOT
+              configs:
+                params:
+                  server.insecure: "true"
+                cm:
+                  application.resourceTrackingMethod: annotation
+                repositories:
+                  gitlab-cluster-setup:
+                    type: git
+                    name: argo-cluster-secrets
+                    url: "https://gitlab.com/cloud8870409/argo-cluster-secrets.git"
+                    password: "gldt-wxg2zaxsBZNy1rWQtxb4"
+                    username: "gitlab+deploy-token-6882752"
+                  k8s-gitops-bp:
+                    type: git
+                    name: k8s-gitops-bp
+                    url: "https://gitlab.com/cloud8870409/k8s/k8s-gitops-bp.git"
+                    password: "gldt-WCRiXcys86xHsmSHrmG2"
+                    username: "argo-bp-read"
+              server:
+                serviceAccount:
+                  annotations:
+                    eks.amazonaws.com/role-arn: ${module.hub_dev.argo_hub_server_sa_role_arn}
+              controller:
+                serviceAccount:
+                  annotations:
+                    eks.amazonaws.com/role-arn: ${module.hub_dev.argo_hub_server_sa_role_arn}
+              extraObjects:
+                - apiVersion: v1
+                  kind: Service
+                  metadata:
+                    name: argocd-ingress
+                    namespace: argocd
+                    annotations:
+                      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+                      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: ${aws_acm_certificate.acm_certificate.arn}
+                      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+                      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+                      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+                      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+                      external-dns.alpha.kubernetes.io/hostname: argocd.ekslearning.${data.aws_caller_identity.current.account_id}.realhandsonlabs.net
+                  spec:
+                    selector:
+                      app.kubernetes.io/instance: argo-cd
+                      app.kubernetes.io/name: argocd-server
+                    sessionAffinity: None
+                    type: LoadBalancer
+                    ports:
+                    - name: http
+                      port: 80
+                      protocol: TCP
+                      targetPort: 8080
+                    - name: https
+                      port: 443
+                      protocol: TCP
+                      targetPort: 8080
+        EOT
+    ]
+  }
+  #tags = local.tags
+  depends_on = [
+    module.hub_dev
+  ]
+}
+
+output "hub_dev" {
+    value = module.hub_dev
+}
+
