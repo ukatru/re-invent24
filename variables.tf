@@ -1,14 +1,14 @@
-variable "oidc_provider" {
+variable "oidc_provider"  {
     type = string
-    description = "EKS Cluster oidc provider id"
+    description = "The OIDC provider id"
 }
 
-variable "aws_account_id" {
+variable "account_id" {
     type = string
-    description = "AWS Account id"
+    description = "The AWS account id"
 }
 
 variable "cluster_name" {
     type = string
-    description = "EKS Cluster name"
+    description = "The EKS cluster name"
 }
