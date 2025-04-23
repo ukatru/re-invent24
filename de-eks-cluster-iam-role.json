@@ -1,0 +1,180 @@
+{
+    "name": "de-eks-cluster-role",
+    "description": "IAM Role for EKS",
+    "type": "role",
+    "account_id": "891377117312",
+    "trust_policies": [
+        {
+            "sid": "EKSClusterAssumeRole",
+            "effect": "Allow",
+            "principals": {
+                "Service": [
+                    "eks.amazonaws.com"
+                ]
+            },
+            "actions": [
+                "sts:AssumeRole",
+                "sts:TagSession"
+            ]
+        }
+    ],
+    "managed_policies": [
+        "AmazonEKSClusterPolicy",
+        "AmazonEKSVPCResourceController"
+    ],
+    "custom_policies": [
+        {
+            "actions": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ListGrants",
+                "kms:DescribeKey"
+            ],
+            "effect": "Allow",
+            "resources": [
+                "*"
+            ]
+        },
+        {
+            "actions": [
+                "ec2:RunInstances",
+                "ec2:CreateLaunchTemplate",
+                "ec2:CreateFleet"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                },
+                {
+                    "test": "StringLike",
+                    "variable": "aws:RequestTag/eks:kubernetes-node-class-name",
+                    "values": [
+                        "*"
+                    ]
+                },
+                {
+                    "test": "StringLike",
+                    "variable": "aws:RequestTag/eks:kubernetes-node-pool-name",
+                    "values": [
+                        "*"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "*"
+            ],
+            "sid": "Compute"
+        },
+        {
+            "actions": [
+                "ec2:CreateVolume",
+                "ec2:CreateSnapshot"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "arn:aws:ec2:*:*:volume/*",
+                "arn:aws:ec2:*:*:snapshot/*"
+            ],
+            "sid": "Storage"
+        },
+        {
+            "actions": [
+                "ec2:CreateNetworkInterface"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                },
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:kubernetes-cni-node-name",
+                    "values": [
+                        "*"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "*"
+            ],
+            "sid": "Networking"
+        },
+        {
+            "actions": [
+                "elasticloadbalancing:CreateTargetGroup",
+                "elasticloadbalancing:CreateRule",
+                "elasticloadbalancing:CreateLoadBalancer",
+                "elasticloadbalancing:CreateListener",
+                "ec2:CreateSecurityGroup"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "*"
+            ],
+            "sid": "LoadBalancer"
+        },
+        {
+            "actions": [
+                "shield:CreateProtection"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "*"
+            ],
+            "sid": "ShieldProtection"
+        },
+        {
+            "actions": ["shield:TagResource"],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "aws:RequestTag/eks:eks-cluster-name",
+                    "values": [
+                        "${aws:PrincipalTag/eks:eks-cluster-name}"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": [
+                "arn:aws:shield::*:protection/*"
+            ],
+            "sid": "ShieldTagResource"
+        }
+    ]
+}

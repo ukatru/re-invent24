@@ -1,0 +1,41 @@
+{
+    "name": "de-eks-assume-role",
+    "description": "IAM Role for EKS",
+    "type": "role",
+    "account_id": "891377117312",
+    "trust_policies": [
+        {
+            "effect": "Allow",
+            "principals": {
+                "AWS": [
+                    "arn:aws:iam::381492233961:user/eks-deploy-user"
+                ]
+            },
+            "actions": [
+                "sts:AssumeRole"
+            ]
+        }
+    ],
+    "managed_policies": [
+       "PowerUserAccess"
+    ],
+    "custom_policies": [
+        {
+            "effect": "Allow",
+            "actions": [
+                "iam:AddRoleToInstanceProfile",
+                "iam:CreateInstanceProfile",
+                "iam:GetInstanceProfile",
+                "iam:GetRole",
+                "iam:ListInstanceProfiles",
+                "iam:PassRole",
+                "iam:CreateOpenIDConnectProvider",
+                "iam:ListAttachedRolePolicies"
+            ],
+            "resources": [
+                "*"
+            ]
+        }
+    ]
+
+}

@@ -1,0 +1,42 @@
+{
+    "name": "de-eks-node-group-role",
+    "description": "IAM Role for EKS",
+    "type": "role",
+    "account_id": "891377117312",
+    "trust_policies": [
+        {
+            "sid": "EKSNodeAssumeRole",
+            "effect": "Allow",
+            "principals": {
+                "Service": [
+                    "ec2.amazonaws.com"
+                ]
+            },
+            "actions": [
+                "sts:AssumeRole"
+            ]
+        }
+    ],
+    "managed_policies": [
+        "AmazonEC2ContainerRegistryReadOnly",
+        "AmazonEKS_CNI_Policy",
+        "AmazonEKSWorkerNodePolicy",
+        "AmazonS3ReadOnlyAccess",
+        "AmazonSSMManagedInstanceCore"
+    ],
+    "custom_policies": [
+        {
+            "effect": "Allow",
+            "actions": [
+                "ecr:GetImageCopyStatus",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:BatchImportUpstreamImage",
+                "ecr:CreateRepository"
+            ],
+            "resources": [
+                "*"
+            ]
+        }
+    ]
+}
