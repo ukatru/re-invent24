@@ -1,0 +1,69 @@
+{
+    "name": "hub-dev-1-cluster-autoscaler-role",
+    "description": "I am role for cluster autoscaler",
+    "type": "role",
+    "account_id": "891377117312",
+    "trust_policies": [
+  
+                {
+                    "effect": "Allow",
+                    "principals": {
+                        "Federated": ["arn:aws:iam::058264154009:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/9532DED39BAE65B29C242EABE2470C18"]
+                    },
+                    "actions": ["sts:AssumeRoleWithWebIdentity"],
+                    "conditions": [
+                        {
+                            "test": "StringEquals",
+                            "variable": "oidc.eks.us-west-2.amazonaws.com/id/9532DED39BAE65B29C242EABE2470C18:aud",
+                            "values": [
+                                "sts.amazonaws.com"
+                            ]
+                        },
+                        {
+                            "test": "StringEquals",
+                            "variable": "oidc.eks.us-west-2.amazonaws.com/id/9532DED39BAE65B29C242EABE2470C18:sub",
+                            "values": [
+                                "system:serviceaccount:kube-system:cluster-autoscaler-sa"
+                            ]
+                        }
+                    ]
+                }
+    ],
+    "custom_policies": [
+        {
+            "actions": [
+                "eks:DescribeNodegroup",
+                "ec2:GetInstanceTypesFromInstanceRequirements",
+                "ec2:DescribeLaunchTemplateVersions",
+                "ec2:DescribeInstanceTypes",
+                "ec2:DescribeImages",
+                "autoscaling:DescribeTags",
+                "autoscaling:DescribeScalingActivities",
+                "autoscaling:DescribeLaunchConfigurations",
+                "autoscaling:DescribeAutoScalingInstances",
+                "autoscaling:DescribeAutoScalingGroups"
+            ],
+            "effect": "Allow",
+            "resources": ["*"]
+        },
+        {
+            "actions": [
+                "autoscaling:UpdateAutoScalingGroup",
+                "autoscaling:TerminateInstanceInAutoScalingGroup",
+                "autoscaling:SetDesiredCapacity"
+            ],
+            "conditions": [
+                {
+                    "test": "StringEquals",
+                    "variable": "autoscaling:ResourceTag/kubernetes.io/cluster/hub-dev",
+                    "values": [
+                        "owned"
+                    ]
+                }
+            ],
+            "effect": "Allow",
+            "resources": ["*"]
+        }
+    ]
+
+}
