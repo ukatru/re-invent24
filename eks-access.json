@@ -1,0 +1,49 @@
+{
+    "Statement": [
+        {
+            "Action": [
+                "eks:ListUpdates",
+                "eks:ListNodegroups",
+                "eks:ListFargateProfiles",
+                "eks:ListAddons"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:eks:us-west-2:767398131861:nodegroup/*/*/*",
+                "arn:aws:eks:us-west-2:767398131861:cluster/hub-dev",
+                "arn:aws:eks:us-west-2:767398131861:addon/*/*/*"
+            ],
+            "Sid": "List"
+        },
+        {
+            "Action": [
+                "eks:ListClusters",
+                "eks:DescribeAddonVersions",
+                "eks:DescribeAddonConfiguration"
+            ],
+            "Effect": "Allow",
+            "Resource": "*",
+            "Sid": "ListDescribeAll"
+        },
+        {
+            "Action": [
+                "eks:ListTagsForResource",
+                "eks:DescribeUpdate",
+                "eks:DescribeNodegroup",
+                "eks:DescribeFargateProfile",
+                "eks:DescribeCluster",
+                "eks:DescribeAddon",
+                "eks:AccessKubernetesApi"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:eks:us-west-2:767398131861:nodegroup/*/*/*",
+                "arn:aws:eks:us-west-2:767398131861:fargateprofile/*/*/*",
+                "arn:aws:eks:us-west-2:767398131861:cluster/hub-dev",
+                "arn:aws:eks:us-west-2:767398131861:addon/*/*/*"
+            ],
+            "Sid": "Describe"
+        }
+    ],
+    "Version": "2012-10-17"
+}
