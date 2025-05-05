@@ -39,3 +39,44 @@
     ]
 
 }
+
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sample_project"
+version = "0.1.0"
+description = "A sample Dagster project"
+requires-python = ">=3.9"
+dependencies = [
+    "boto3",
+    "dagster",
+    "dagster-aws",
+    "dagster-postgres",
+    "dagster-snowflake",
+    "dagster-cloud",
+    #"dagster-gcp",
+    "dagster-obstore",
+    "pandas",
+    "numpy",
+    "awscli",
+]
+
+[project.optional-dependencies]
+dev = [
+"dagit",
+"pytest",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+skip-string-normalization = true
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
