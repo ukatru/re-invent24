@@ -1,63 +1,58 @@
-stages:
-  - assume-role
-  - build-image
-  
-get-aws-credentials:
-  stage: assume-role
-  id_tokens:
-    MY_OIDC_TOKEN:
-      aud: https://gitlab.com
-  before_script:
-    - mkdir -p ~/.aws
-    - echo "${MY_OIDC_TOKEN}" 
-    - echo "${MY_OIDC_TOKEN}" > /tmp/web_identity_token
-    - echo -e "[profile oidc]\nrole_arn=${ARN_ROLE}\nweb_identity_token_file=/tmp/web_identity_token" > ~/.aws/config
-    - yum install jq -y
-  image:
-    name: "amazon/aws-cli:latest"
-    entrypoint: [""]
-  variables:
-    AWS_REGION: us-west-2
-    AWS_PROFILE: oidc
-    #S3_BUCKET_NAME: "test-bucket-12355345242523423425"
-  script:
-    - |
-        #aws s3 ls s3://my-gitlab-s3-058264474160
-        CREDENTIALS=$(aws sts assume-role-with-web-identity --role-arn "$ARN_ROLE" \
-             --role-session-name gitlab-runner \
-             --web-identity-token ${MY_OIDC_TOKEN} \
-             --query "Credentials" --output json)
-        echo "AWS_ACCESS_KEY_ID=$(echo $CREDENTIALS | jq -r '.AccessKeyId')" > aws_credentials.env
-        echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDENTIALS | jq -r '.SecretAccessKey')" >> aws_credentials.env
-        echo "AWS_SESSION_TOKEN=$(echo $CREDENTIALS | jq -r '.SessionToken')" >> aws_credentials.env
-        echo "AWS_REGION=us-west-2" >> aws_credentials.env
-  artifacts:
-    reports:
-      dotenv: aws_credentials.env
+FROM ubuntu:latest
 
-.build-image:
-  image:
-    name: "gcr.io/kaniko-project/executor:debug"
-    entrypoint: [ "" ]
-  variables: 
-    AWS_REGION: us-west-2
-    REGISTRY: "637423656705.dkr.ecr.us-east-1.amazonaws.com/dpe-analytics/dev"
+RUN apt-get update && apt-get install -y curl unzip sudo git python3
 
-build-sample-image:
-  stage: build-image
-  extends: .build-image
-  needs:
-    - job: get-aws-credentials
-      artifacts: true
-  script:
-    - echo "Building sample Docker image"
-    - echo "TARGET_ENV=dev"
-    - mkdir -p /kaniko/.docker
-    - echo "{\"credsStore\":\"ecr-login\",\"credHelpers\":{\"$REGISTRY/my-kaniko\":\"ecr-login\"}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context $CI_PROJECT_DIR --cache=false --cache-run-layers=false --dockerfile Dockerfile --destination $REGISTRY/my-kaniko:latest
-    - echo "Sample Docker image built successfully"
-  after_script:
-    - echo "Cleaning up"
-    - rm -rf /tmp/web_identity_token
-    - rm -rf ~/.aws/config
-    - rm -rf aws_credentials.env
+RUN mkdir -p /app
+COPY binary/* /app
+COPY scripts/* /app
+
+RUN  cd /app && tar -xvf timoni_0.20.0_linux_amd64.tar.gz && \
+    mv timoni /usr/local/bin/timoni && \
+    mv configureAWSCredsForEKS /usr/local/bin/configureAWSCredsForEKS && \
+    chmod +x /usr/local/bin/configureAWSCredsForEKS && \
+    mv configureAWSCredsForTerraform /usr/local/bin/configureAWSCredsForTerraform && \
+    chmod +x /usr/local/bin/configureAWSCredsForTerraform && \
+    mv terraformSetup /usr/local/bin/terraformSetup && \
+    chmod +x /usr/local/bin/terraformSetup && \
+    mv tf_merge_branch /usr/local/bin/tf_merge_branch && \
+    chmod +x /usr/local/bin/tf_merge_branch
+
+RUN cd /app && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    sudo ./aws/install && \
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/kubectl
+
+RUN rm -rf /app/timoni_0.20.0_linux_amd64.tar.gz && \
+    rm -rf /app/awscliv2.zip && \
+    rm -rf /app/aws
+
+#setup terraform
+RUN git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv && \
+    ln -s ~/.tfenv/bin/* /usr/local/bin && \
+    echo 'export PATH="$HOME/.tfenv/bin:$PATH"' >> ~/.bash_profile && \
+    tfenv install
+
+# install opa policies client
+RUN cd /app && curl -L -o opa https://openpolicyagent.org/downloads/v0.63.0/opa_linux_amd64_static && \
+    chmod +x opa && \
+    mv opa /usr/local/bin/opa
+
+# install jq
+RUN apt-get install -y jq
+
+# setup docker
+RUN install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc
+
+RUN echo "deb [arch=$(dpkg --print-architecture) \
+        signed-by=/etc/apt/keyrings/docker.asc] \
+        https://download.docker.com/linux/ubuntu \
+        $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+        | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+RUN apt-get update && \
+    apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
+
