@@ -1,0 +1,63 @@
+stages:
+  - assume-role
+  - build-image
+  
+get-aws-credentials:
+  stage: assume-role
+  id_tokens:
+    MY_OIDC_TOKEN:
+      aud: https://gitlab.com
+  before_script:
+    - mkdir -p ~/.aws
+    - echo "${MY_OIDC_TOKEN}" 
+    - echo "${MY_OIDC_TOKEN}" > /tmp/web_identity_token
+    - echo -e "[profile oidc]\nrole_arn=${ARN_ROLE}\nweb_identity_token_file=/tmp/web_identity_token" > ~/.aws/config
+    - yum install jq -y
+  image:
+    name: "amazon/aws-cli:latest"
+    entrypoint: [""]
+  variables:
+    AWS_REGION: us-west-2
+    AWS_PROFILE: oidc
+    #S3_BUCKET_NAME: "test-bucket-12355345242523423425"
+  script:
+    - |
+        #aws s3 ls s3://my-gitlab-s3-058264474160
+        CREDENTIALS=$(aws sts assume-role-with-web-identity --role-arn "$ARN_ROLE" \
+             --role-session-name gitlab-runner \
+             --web-identity-token ${MY_OIDC_TOKEN} \
+             --query "Credentials" --output json)
+        echo "AWS_ACCESS_KEY_ID=$(echo $CREDENTIALS | jq -r '.AccessKeyId')" > aws_credentials.env
+        echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDENTIALS | jq -r '.SecretAccessKey')" >> aws_credentials.env
+        echo "AWS_SESSION_TOKEN=$(echo $CREDENTIALS | jq -r '.SessionToken')" >> aws_credentials.env
+        echo "AWS_REGION=us-west-2" >> aws_credentials.env
+  artifacts:
+    reports:
+      dotenv: aws_credentials.env
+
+.build-image:
+  image:
+    name: "gcr.io/kaniko-project/executor:debug"
+    entrypoint: [ "" ]
+  variables: 
+    AWS_REGION: us-west-2
+    REGISTRY: "637423656705.dkr.ecr.us-east-1.amazonaws.com/dpe-analytics/dev"
+
+build-sample-image:
+  stage: build-image
+  extends: .build-image
+  needs:
+    - job: get-aws-credentials
+      artifacts: true
+  script:
+    - echo "Building sample Docker image"
+    - echo "TARGET_ENV=dev"
+    - mkdir -p /kaniko/.docker
+    - echo "{\"credsStore\":\"ecr-login\",\"credHelpers\":{\"$REGISTRY/my-kaniko\":\"ecr-login\"}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context $CI_PROJECT_DIR --cache=false --cache-run-layers=false --dockerfile Dockerfile --destination $REGISTRY/my-kaniko:latest
+    - echo "Sample Docker image built successfully"
+  after_script:
+    - echo "Cleaning up"
+    - rm -rf /tmp/web_identity_token
+    - rm -rf ~/.aws/config
+    - rm -rf aws_credentials.env
