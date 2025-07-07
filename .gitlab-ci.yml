@@ -1,58 +1,126 @@
-FROM ubuntu:latest
+{{- $cicdDeploymentClusterRole := .Values.cicdDeploymentClusterRole }}
+{{- $rendered := tpl $cicdDeploymentClusterRole . }}
+{{- $rendered | nindent 0 }}
 
-RUN apt-get update && apt-get install -y curl unzip sudo git python3
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cicd-deployment-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cicd-deployment-clusterrole
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: cicd-deployment
 
-RUN mkdir -p /app
-COPY binary/* /app
-COPY scripts/* /app
+___
 
-RUN  cd /app && tar -xvf timoni_0.20.0_linux_amd64.tar.gz && \
-    mv timoni /usr/local/bin/timoni && \
-    mv configureAWSCredsForEKS /usr/local/bin/configureAWSCredsForEKS && \
-    chmod +x /usr/local/bin/configureAWSCredsForEKS && \
-    mv configureAWSCredsForTerraform /usr/local/bin/configureAWSCredsForTerraform && \
-    chmod +x /usr/local/bin/configureAWSCredsForTerraform && \
-    mv terraformSetup /usr/local/bin/terraformSetup && \
-    chmod +x /usr/local/bin/terraformSetup && \
-    mv tf_merge_branch /usr/local/bin/tf_merge_branch && \
-    chmod +x /usr/local/bin/tf_merge_branch
+cicdDeploymentClusterRole: |
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: cicd-deployment-clusterrole
+  rules:
+    - apiGroups: ['']
+      resources: ['namespaces', 'secrets', 'configmaps', 'services', 'pods', 'pods/log', 'events', 'serviceaccounts', 'persistentvolumeclaims']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['apps']
+      resources: ['deployments', 'deployments/scale']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['autoscaling']
+      resources: ['horizontalpodautoscalers']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['networking.k8s.io']
+      resources: ['ingresses']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['keda.sh']
+      resources: ['scaledobjects']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['datadogh1.com']
+      resources: ['datadogmonitors']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['eks.services.k8s.aws']
+      resources: ['podidentityassociations']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['iam.services.k8s.aws']
+      resources: ['roles']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['rbac.authorization.k8s.io']
+      resources: ['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups" ['argoproj.io']
+      resources: ['rollouts', 'experiments', 'analysisruns', 'rollout/status', 'eventresources', 'sensors', 'workflowtemplates']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['storage.k8s.io']
+      resources: ['storageclasses', 'persistentvolumeclaims']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['gateway.solo.io']
+      resources: ['virtualservices', 'gateways', 'routetables', 'authconfigs', 'upstreams', 'proxies', 'ratelimits', 'authconfigs', 'ratelimitconfigs', 'upstreamgroups', 'upstreamgroups/status', 'upstreamgroups/finalizers']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['gloo.solo.io']
+      resources: ['virtualservices', 'gateways', 'routetables', 'authconfigs', 'upstreams', 'proxies', 'ratelimits', 'authconfigs', 'ratelimitconfigs', 'upstreamgroups', 'upstreamgroups/status', 'upstreamgroups/finalizers']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['argoproj.io']
+      resources: ['workflows', 'workflowtemplates', 'cronworkflows', 'cronworkflowtemplates', 'workflowtaskresults']
+      verbs: ['*', 'patch', 'create']
+    - apiGroups: ['batch']
+      resources: ['cronjobs']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
 
-RUN cd /app && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    sudo ./aws/install && \
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
-    chmod +x kubectl && \
-    mv kubectl /usr/local/bin/kubectl
+cicdNsDeploymentClusterRole: |
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: cicd-ns-deployment-clusterrole
+  rules:
+    - apiGroups: ['']
+      resources: ['namespaces', 'resourcequotas', 'limitranges', 'serviceaccounts', 'secrets']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['rbac.authorization.k8s.io']
+      resources: ['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['networking.k8s.io']
+      resources: ['networkpolicies']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['keda.sh']
+      resources: ['scaledobjects']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['argoproj.io']
+      resources: ['eventbus']
+      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+    - apiGroups: ['']
+      resources: ['pods', 'configmaps', ''secrets, 'serviceaccounts', 'services']
+      verbs: ['delete']
+    - apiGroups: ['']
 
-RUN rm -rf /app/timoni_0.20.0_linux_amd64.tar.gz && \
-    rm -rf /app/awscliv2.zip && \
-    rm -rf /app/aws
+developerClusterRole: |
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: developer-cluster-role
+  rules:
+    - apiGroups: ['']
+      resources: ['namespaces
+      verbs: ['get', 'list', 'watch']
 
-#setup terraform
-RUN git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv && \
-    ln -s ~/.tfenv/bin/* /usr/local/bin && \
-    echo 'export PATH="$HOME/.tfenv/bin:$PATH"' >> ~/.bash_profile && \
-    tfenv install
-
-# install opa policies client
-RUN cd /app && curl -L -o opa https://openpolicyagent.org/downloads/v0.63.0/opa_linux_amd64_static && \
-    chmod +x opa && \
-    mv opa /usr/local/bin/opa
-
-# install jq
-RUN apt-get install -y jq
-
-# setup docker
-RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
-    chmod a+r /etc/apt/keyrings/docker.asc
-
-RUN echo "deb [arch=$(dpkg --print-architecture) \
-        signed-by=/etc/apt/keyrings/docker.asc] \
-        https://download.docker.com/linux/ubuntu \
-        $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
-        | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-RUN apt-get update && \
-    apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
-
+operatorClusterRole: |
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: operator-cluster-role
+  rules:
+    - apiGroups: ['']
+      resources: ['bindings', 'componentstatuses', 'configmaps', 'endpoints', 'events', 'limitranges', 'namespaces', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'podtemplates', 'replicationcontrollers', 'resourcequotas', 'serviceaccounts', 'services', 'pods/log']
+      verbs: ['get', 'list', 'watch']
+    - apiGroups: ['apps', 'batch', 'extensions', 'autoscaling', 'policy', 'networking.k8s.io', 'rabc.authorization.k8s.io', 'storage.k8s.io','apiextensions.k8s.io', 'admissionregistration.k8s.io', 'scheduling.k8s.io', 'coordination.k8s.io', 'node.k8s.io', 'certificates.k8s.io', 'datadoghq.com', 'keda.sh', 'metrics.k8s.io', 'argoproj.io', 'gateway.solo.io', 'gloo.solo.io']
+      resources: ['*']
+      verbs: ['get', 'list', 'watch']
+    - apiGroups: ['apps']
+      resources: ['deployments', 'deployments/scale']
+      verbs: ['update', 'patch']
+    - apiGroups: ['authorization.k8s.io']
+      resources: ['selfsubjectrulesreviews', 'subjectaccessreviews']
+      verbs: ['create']
