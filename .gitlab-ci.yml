@@ -1,126 +1,37 @@
-{{- $cicdDeploymentClusterRole := .Values.cicdDeploymentClusterRole }}
-{{- $rendered := tpl $cicdDeploymentClusterRole . }}
-{{- $rendered | nindent 0 }}
+#!/usr/bin/env bash
+# Extract the host where the server is running, and add the URL to the APIs
+[[ $HOST =~ ^https?://[^/]+ ]] && HOST="${BASH_REMATCH[0]}/api/v4/projects/"
 
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: cicd-deployment-clusterrolebinding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cicd-deployment-clusterrole
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: cicd-deployment
+# Look which is the default branch
+#TARGET_BRANCH=`curl --silent "${HOST}${CI_PROJECT_ID}" --header "PRIVATE-TOKEN:${PRIVATE_TOKEN}" | python3 -c "import sys, json; print(json.load(sys.stdin)['default_branch'])"`;
 
-___
+# The description of our new MR, we want to remove the branch after the MR has
+# been closed
+BODY="{
+    \"id\": ${CI_PROJECT_ID},
+    \"source_branch\": \"${CI_COMMIT_REF_NAME}\",
+    \"target_branch\": \"${TARGET_BRANCH}\",
+    \"remove_source_branch\": \"${REMOVE_SOURCE_BRANCH}\",
+    \"title\": \"Request to merge source: ${CI_COMMIT_REF_NAME} to ${TARGET_BRANCH}\",
+    \"description\": \"${desc}\",
+    \"assignee_id\":\"${GITLAB_USER_ID}\"
+}";
 
-cicdDeploymentClusterRole: |
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: ClusterRole
-  metadata:
-    name: cicd-deployment-clusterrole
-  rules:
-    - apiGroups: ['']
-      resources: ['namespaces', 'secrets', 'configmaps', 'services', 'pods', 'pods/log', 'events', 'serviceaccounts', 'persistentvolumeclaims']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['apps']
-      resources: ['deployments', 'deployments/scale']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['autoscaling']
-      resources: ['horizontalpodautoscalers']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['networking.k8s.io']
-      resources: ['ingresses']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['keda.sh']
-      resources: ['scaledobjects']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['datadogh1.com']
-      resources: ['datadogmonitors']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['eks.services.k8s.aws']
-      resources: ['podidentityassociations']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['iam.services.k8s.aws']
-      resources: ['roles']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['rbac.authorization.k8s.io']
-      resources: ['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups" ['argoproj.io']
-      resources: ['rollouts', 'experiments', 'analysisruns', 'rollout/status', 'eventresources', 'sensors', 'workflowtemplates']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['storage.k8s.io']
-      resources: ['storageclasses', 'persistentvolumeclaims']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['gateway.solo.io']
-      resources: ['virtualservices', 'gateways', 'routetables', 'authconfigs', 'upstreams', 'proxies', 'ratelimits', 'authconfigs', 'ratelimitconfigs', 'upstreamgroups', 'upstreamgroups/status', 'upstreamgroups/finalizers']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['gloo.solo.io']
-      resources: ['virtualservices', 'gateways', 'routetables', 'authconfigs', 'upstreams', 'proxies', 'ratelimits', 'authconfigs', 'ratelimitconfigs', 'upstreamgroups', 'upstreamgroups/status', 'upstreamgroups/finalizers']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['argoproj.io']
-      resources: ['workflows', 'workflowtemplates', 'cronworkflows', 'cronworkflowtemplates', 'workflowtaskresults']
-      verbs: ['*', 'patch', 'create']
-    - apiGroups: ['batch']
-      resources: ['cronjobs']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
+# Require a list of all the merge request and take a look if there is already
+# one with the same source branch
+LISTMR=`curl --silent "${HOST}${CI_PROJECT_ID}/merge_requests?state=opened" --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}"`;
+COUNTBRANCHES=`echo ${LISTMR} | grep -o "\"source_branch\":\"${CI_COMMIT_REF_NAME}\"" | wc -l`;
 
-cicdNsDeploymentClusterRole: |
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: ClusterRole
-  metadata:
-    name: cicd-ns-deployment-clusterrole
-  rules:
-    - apiGroups: ['']
-      resources: ['namespaces', 'resourcequotas', 'limitranges', 'serviceaccounts', 'secrets']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['rbac.authorization.k8s.io']
-      resources: ['roles', 'rolebindings', 'clusterroles', 'clusterrolebindings']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['networking.k8s.io']
-      resources: ['networkpolicies']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['keda.sh']
-      resources: ['scaledobjects']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['argoproj.io']
-      resources: ['eventbus']
-      verbs: ['create', 'update', 'patch', 'delete', 'get', 'list', 'watch']
-    - apiGroups: ['']
-      resources: ['pods', 'configmaps', ''secrets, 'serviceaccounts', 'services']
-      verbs: ['delete']
-    - apiGroups: ['']
+# No MR found, let's create a new one
+if [ ${COUNTBRANCHES} -eq "0" ]; then
+    curl -X POST "${HOST}${CI_PROJECT_ID}/merge_requests" \
+        --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}" \
+        --header "Content-Type: application/json" \
+        --data "${BODY}" \
+        --insecure;
 
-developerClusterRole: |
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: ClusterRole
-  metadata:
-    name: developer-cluster-role
-  rules:
-    - apiGroups: ['']
-      resources: ['namespaces
-      verbs: ['get', 'list', 'watch']
+    echo "Opened a new merge request: WIP: ${CI_COMMIT_REF_NAME} and assigned to you";
+    exit;
+fi
 
-operatorClusterRole: |
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: ClusterRole
-  metadata:
-    name: operator-cluster-role
-  rules:
-    - apiGroups: ['']
-      resources: ['bindings', 'componentstatuses', 'configmaps', 'endpoints', 'events', 'limitranges', 'namespaces', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'podtemplates', 'replicationcontrollers', 'resourcequotas', 'serviceaccounts', 'services', 'pods/log']
-      verbs: ['get', 'list', 'watch']
-    - apiGroups: ['apps', 'batch', 'extensions', 'autoscaling', 'policy', 'networking.k8s.io', 'rabc.authorization.k8s.io', 'storage.k8s.io','apiextensions.k8s.io', 'admissionregistration.k8s.io', 'scheduling.k8s.io', 'coordination.k8s.io', 'node.k8s.io', 'certificates.k8s.io', 'datadoghq.com', 'keda.sh', 'metrics.k8s.io', 'argoproj.io', 'gateway.solo.io', 'gloo.solo.io']
-      resources: ['*']
-      verbs: ['get', 'list', 'watch']
-    - apiGroups: ['apps']
-      resources: ['deployments', 'deployments/scale']
-      verbs: ['update', 'patch']
-    - apiGroups: ['authorization.k8s.io']
-      resources: ['selfsubjectrulesreviews', 'subjectaccessreviews']
-      verbs: ['create']
+echo "No new merge request opened";
