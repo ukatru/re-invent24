@@ -18,7 +18,7 @@ metadata:
 spec:
   project: hub
   source:
-    repoURL: https://gitlab.com/cloud8870409/argo-cluster-secrets.git
+    repoURL: <repoUrl>
     targetRevision: HEAD
     path: Clusters/${ENVIRONMET}
     directory:
