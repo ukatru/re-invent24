@@ -1,1 +1,20 @@
- if [ -s .merge_review/tag_info ] ; then for module in `cat .merge_review/tag_info`; do   if git ls-remote --tags ssh://git@${git_repo/8443/7222} |  grep /$module- ; then git ls-remote --tags ssh://git@${git_repo/8443/7222} | grep /$module- | tail -n 2 | head -1 | sed 's/.*tags\///' | tee /tmp/current_tag_version; bumpversion --current-version $(cat /tmp/current_tag_version) patch /tmp/current_tag_version; ls -altr .; cat /tmp/current_tag_version; git tag -a $(cat /tmp/current_tag_version) -m "version $(cat /tmp/current_tag_version)"; git push ssh://git@${git_repo/8443/7222} $(cat /tmp/current_tag_version) -o ci.skip; else git tag -a $module-v1.0.0 -m "$module version v1.0.0" && echo $module-v1.0.0 | tee /tmp/current_tag_version; git push ssh://git@${git_repo/8443/7222} $(cat /tmp/current_tag_version) -o ci.skip; fi; done; fi
+#!/bin/bash
+
+# Extract the host 
+HOST=${CI_PROJECT_URL}
+[[ $HOST =~ ^https?://[^/]+ ]] && HOST="${BASH_REMATCH[0]}/api/v4/projects/"
+
+TAG_NAME=v${PRODUCT_VERSION}${TAG_SUFFIX}
+echo "Creating tag ${TAG_NAME}";
+
+http_code=$(curl -X POST "${HOST}${CI_PROJECT_ID}/repository/tags?tag_name=${TAG_NAME}&ref=${CI_COMMIT_SHA}" \
+        --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}" \
+        --insecure \
+        --silent \
+        --output /dev/null \
+        --write-out "%{http_code}")
+
+if [[ "$http_code" != "201" ]]; then
+    echo "${http_code}: Failed to create tag ${TAG_NAME}"
+    exit 1;
+fi
