@@ -1,0 +1,29 @@
+# Replace any values between the angle brackets '<>', with your desired configuration
+alloy-metrics:
+    extraConfig: |-
+        discovery.kubernetes "coredns" {
+            role = "pod"
+            selectors {
+                role = "pod"
+                label = "<coredns_pod_label_name>=<coredns_pod_label_value>"
+            }
+        }
+        
+        discovery.relabel "coredns" {
+            targets = discovery.kubernetes.coredns.targets
+            rule {
+                source_labels = ["__meta_kubernetes_pod_container_port_number"]
+                regex = "<coredns_prometheus_port_number>"
+                action = "keep"
+            }  
+            rule {
+                source_labels = ["__meta_kubernetes_pod_name"]
+                target_label = "instance"
+            }
+        }
+
+        prometheus.scrape "coredns" {
+            targets      = discovery.relabel.coredns.output
+            job_name     = "integrations/coredns"
+            honor_labels = true
+        }
