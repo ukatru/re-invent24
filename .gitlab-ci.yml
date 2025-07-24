@@ -24,3 +24,51 @@ build-image:
         mkdir -p bindings/dependency-mapping
         /cnb/lifecycle/creator -app . -cache-image $REGISTRY_GROUP_PROJECT/paketo-build-cache:latest $REGISTRY_GROUP_PROJECT:latest \
         --volume $pwd:/platform/bindings 
+
+==========================================================
+[tool.poetry]
+name = "default_app"
+version = "0.1.0"
+description = ""
+authors = []
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Flask = "2.3.2"
+gunicorn = "^20.1.0"
+
+[tool.poetry.scripts]
+my-script = "default_app.server:run"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+=========================================================
+
+import os
+from flask import Flask, render_template
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello_world():
+    return render_template('index.html')
+
+if __name__ == "__main__":
+    app.run()
+
+def run():
+    port = int(os.getenv("PORT"))
+    app.run(host='0.0.0.0', port=port)
+====================================================================
+
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Powered By Paketo Buildpacks</title>
+  </head>
+  <body>
+    <img style="display: block; margin-left: auto; margin-right: auto; width: 50%;" src="https://paketo.io/images/paketo-logo-full-color.png"></img>
+  </body>
+</html>
