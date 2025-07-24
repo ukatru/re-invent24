@@ -1,20 +1,26 @@
-#!/bin/bash
+# For a detailed description on how to use Paketo.io Buildpacks in GitLab CI
+# with Kubernetes executor & unprivileged Runners (without pack CLI & docker)
+# see https://stackoverflow.com/questions/69569784/use-paketo-io-cloudnativebuildpacks-cnb-in-gitlab-ci-with-kubernetes-executo
+image: paketobuildpacks/builder
 
-# Extract the host 
-HOST=${CI_PROJECT_URL}
-[[ $HOST =~ ^https?://[^/]+ ]] && HOST="${BASH_REMATCH[0]}/api/v4/projects/"
+variables:
+  # see usage of Namespaces at https://docs.gitlab.com/ee/user/group/#namespaces
+  REGISTRY_GROUP_PROJECT: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
 
-TAG_NAME=v${PRODUCT_VERSION}${TAG_SUFFIX}
-echo "Creating tag ${TAG_NAME}";
+stages:
+  - build
 
-http_code=$(curl -X POST "${HOST}${CI_PROJECT_ID}/repository/tags?tag_name=${TAG_NAME}&ref=${CI_COMMIT_SHA}" \
-        --header "PRIVATE-TOKEN:${GITLAB_PRIVATE_TOKEN}" \
-        --insecure \
-        --silent \
-        --output /dev/null \
-        --write-out "%{http_code}")
+# As we don't have docker available, we can't login to GitLab Container Registry as described in the docs https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#using-the-gitlab-container-registry
+# But we somehow need to access GitLab Container Registry with the Paketo lifecycle
+# So we simply create ~/.docker/config.json as stated in https://stackoverflow.com/a/46422186/4964553
+before_script:
+  - mkdir ~/.docker
+  - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_JOB_TOKEN\"}}}" >> ~/.docker/config.json
 
-if [[ "$http_code" != "201" ]]; then
-    echo "${http_code}: Failed to create tag ${TAG_NAME}"
-    exit 1;
-fi
+build-image:
+  stage: build
+  script:
+    - |
+        mkdir -p bindings/dependency-mapping
+        /cnb/lifecycle/creator -app . -cache-image $REGISTRY_GROUP_PROJECT/paketo-build-cache:latest $REGISTRY_GROUP_PROJECT:latest \
+        --volume $pwd:/platform/bindings 
