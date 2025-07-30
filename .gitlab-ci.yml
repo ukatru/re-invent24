@@ -1,74 +1,104 @@
-# For a detailed description on how to use Paketo.io Buildpacks in GitLab CI
-# with Kubernetes executor & unprivileged Runners (without pack CLI & docker)
-# see https://stackoverflow.com/questions/69569784/use-paketo-io-cloudnativebuildpacks-cnb-in-gitlab-ci-with-kubernetes-executo
-image: paketobuildpacks/builder
+locals {
+  arn_base = module.eks.cluster_arn != null ? join(":", slice(split(":", module.eks.cluster_arn), 0, 5)) : ""
+}
 
-variables:
-  # see usage of Namespaces at https://docs.gitlab.com/ee/user/group/#namespaces
-  REGISTRY_GROUP_PROJECT: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+data "aws_iam_policy_document" "iam_policy_document_argocd_server" {
+  count = var.create_argocd_spoke_role ? 1 : 0 # Only create for non management clusters
 
-stages:
-  - build
+  statement {
+    sid = "List"
+    actions = [
+      "eks:ListFargateProfiles",
+      "eks:ListNodegroups",
+      "eks:ListUpdates",
+      "eks:ListAddons"
+    ]
+    resources = [
+      module.eks.cluster_arn,
+      "${local.arn_base}:nodegroup/*/*/*",
+      "${local.arn_base}:addon/*/*/*",
+    ]
+  }
+  statement {
+    sid = "ListDescribeAll"
+    actions = [
+      "eks:DescribeAddonConfigurations",
+      "eks:DescribeAddonVersions",
+      "eks:ListClusters",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid = "Describe"
+    actions = [
+      "eks:DescribeCluster",
+      "eks:DescribeFargateProfile",
+      "eks:DescribeNodegroup",
+      "eks:DescribeUpdate",
+      "eks:DescribeAddon",
+      "eks:ListTagsForResource",
+      "eks:AccessKubernetesApi"
+    ]
+    resources = [
+      module.eks.cluster_arn,
+      "${local.arn_base}:fargateprofile/*/*/*",
+      "${local.arn_base}:nodegroup/*/*/*",
+      "${local.arn_base}:addon/*/*/*",
+    ]
+  }
+}
 
-# As we don't have docker available, we can't login to GitLab Container Registry as described in the docs https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#using-the-gitlab-container-registry
-# But we somehow need to access GitLab Container Registry with the Paketo lifecycle
-# So we simply create ~/.docker/config.json as stated in https://stackoverflow.com/a/46422186/4964553
-before_script:
-  - mkdir ~/.docker
-  - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_JOB_TOKEN\"}}}" >> ~/.docker/config.json
+resource "aws_iam_policy" "argocd_server_access_policy" {
+  count = var.create_argocd_spoke_role ? 1 : 0 # Only create for non management clusters
 
-build-image:
-  stage: build
-  script:
-    - |
-        mkdir -p bindings/dependency-mapping
-        /cnb/lifecycle/creator -app . -cache-image $REGISTRY_GROUP_PROJECT/paketo-build-cache:latest $REGISTRY_GROUP_PROJECT:latest \
-        --volume $pwd:/platform/bindings 
+  name        = "eks-${local.cluster_name}-argocd-server-access-policy"
+  path        = "/"
+  description = "IAM policy for ArgoCD server access - eks-${local.cluster_name}"
+  policy      = data.aws_iam_policy_document.iam_policy_document_argocd_server[0].json
+}
 
-==========================================================
-[tool.poetry]
-name = "default_app"
-version = "0.1.0"
-description = ""
-authors = []
+resource "aws_iam_role" "argocd_server_access_role" {
+  count = var.create_argocd_spoke_role ? 1 : 0 # Only create for non management clusters
 
-[tool.poetry.dependencies]
-python = "^3.10"
-Flask = "2.3.2"
-gunicorn = "^20.1.0"
-
-[tool.poetry.scripts]
-my-script = "default_app.server:run"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-=========================================================
-
-import os
-from flask import Flask, render_template
-
-app = Flask(__name__)
-
-@app.route('/')
-def hello_world():
-    return render_template('index.html')
-
-if __name__ == "__main__":
-    app.run()
-
-def run():
-    port = int(os.getenv("PORT"))
-    app.run(host='0.0.0.0', port=port)
-====================================================================
+  name = "eks-${local.cluster_name}-argocd-server-access-role"
+  path = "/"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          AWS = "${var.argocd_mgmt_principal_arn}"
+        },
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
 
 
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Powered By Paketo Buildpacks</title>
-  </head>
-  <body>
-    <img style="display: block; margin-left: auto; margin-right: auto; width: 50%;" src="https://paketo.io/images/paketo-logo-full-color.png"></img>
-  </body>
-</html>
+resource "aws_iam_role_policy_attachment" "argocd_server_access_policy_attachment" {
+  count = var.create_argocd_spoke_role ? 1 : 0 # Only create for non management clusters
+
+  role       = aws_iam_role.argocd_server_access_role[0].name
+  policy_arn = aws_iam_policy.argocd_server_access_policy[0].arn
+}
+
+
+argocd-role-access = {
+    argocd-admin = {
+      kubernetes_groups = []
+      principal_arn     = join("", aws_iam_role.argocd_server_access_role.*.arn)
+
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            apiGroups = ["*"]
+            type      = "cluster"
+          }
+        }
+      }
+
+    }
+  }
