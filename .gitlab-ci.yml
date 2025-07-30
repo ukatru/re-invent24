@@ -1,40 +1,74 @@
+#!/bin/bash
+
+
+KUBE_CONFIG="$(mktemp)"
+aws eks update-kubeconfig --name "${CLUSTER_NAME}" --kubeconfig "$${KUBE_CONFIG}" --region "${AWS_REGION}" --profile "${AWS_PROFILE}"
+
+cat <<EOF | kubectl --kubeconfig "$${KUBE_CONFIG}" apply -f - 
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: hub
+  namespace: argocd
+  # Finalizer that ensures that project is not deleted until it is not referenced by any application
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "Project for management cluster apps"
+  # Allow manifests to deploy from any Git repos
+  sourceRepos:
+  - '*'
+  # Only permit applications to deploy to the guestbook namespace in the same cluster
+  destinations:
+  - namespace: '*'
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: ApplicationSet
+kind: Application
 metadata:
-  name: shared-project-applicationset
+  name: bootstrap
   namespace: argocd
 spec:
-  goTemplate: true
-  goTemplateOptions: ["missingkey=error"]
+  project: hub
+  source:
+    repoURL: https://gitlab.com/cloud8870409/argo-cluster-secrets.git
+    targetRevision: HEAD
+    path: bootstrap/${ENVIRONMET}
+    directory:
+      recurse: true 
+  destination:
+    server: https://kubernetes.default.svc
   syncPolicy:
-    preserveResourcesOnDeletion: true
-  generators:
-    - merge:
-        mergeKeys: [server]
-        generators:
-          - clusters:
-              selector:
-                matchExpressions:
-                  - key: in_cluster
-                    operator: In
-                    values: ['true']
-          - clusters: {}
-  template:
-    metadata:
-      name: 'shared-project-{{.name}}-{{.metadata.labels.environment}}'
-    spec:
-      project: '{{.metadata.annotations.argocd_project_name}}'
-      source:
-        repoURL: 'https://gitlab.com/cloud8870409/argo-cluster-secrets.git'
-        targetRevision: 'master'
-        path: 'Projects/{{ .metadata.labels.environment }}'
-      destination:
-        namespace: 'argocd'
-        name: '{{.name}}'
-      syncPolicy:
-        automated: {}
-        syncOptions:
-          - CreateNamespace=false
-          - ApplyOutofSyncOnly=true
-
+    automated: # automated sync by default retries failed attempts 5 times with following delays between attempts ( 5s, 10s, 20s, 40s, 80s ); retry controlled using `retry` field.
+      prune: true # Specifies if resources should be pruned during auto-syncing ( false by default ).
+      selfHeal: true # Specifies if partial app sync should be executed when resources are changed only in target Kubernetes cluster and no git change detected ( false by default ).
+      allowEmpty: false # Allows deleting all application resources during automatic syncing ( false by default ).
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clusters
+  namespace: argocd
+spec:
+  project: hub
+  source:
+    repoURL: https://gitlab.com/cloud8870409/argo-cluster-secrets.git
+    targetRevision: HEAD
+    path: Clusters/${ENVIRONMET}
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated: # automated sync by default retries failed attempts 5 times with following delays between attempts ( 5s, 10s, 20s, 40s, 80s ); retry controlled using `retry` field.
+      prune: true # Specifies if resources should be pruned during auto-syncing ( false by default ).
+      selfHeal: true # Specifies if partial app sync should be executed when resources are changed only in target Kubernetes cluster and no git change detected ( false by default ).
+      allowEmpty: false # Allows deleting all application resources during automatic syncing ( false by default ).
+EOF
+rm "$${KUBE_CONFIG}"
