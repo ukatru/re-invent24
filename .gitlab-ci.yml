@@ -102,3 +102,194 @@ argocd-role-access = {
 
     }
   }
+
+###########################################################################
+
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+    environment: ${ENVIRONMENT}
+%{ for addon in blueprints ~}
+    "addon/${addon}": "true"
+%{ endfor ~}
+    in_cluster: "false"
+  annotations:
+    aws_cluster_name: ${CLUSTER_NAME}
+    eks_service_host: ${CLUSTER_ENDPOINT}
+    addons_repo_url: https://gitlab.com/cloud8870409/k8s/k8s-gitops-bp.git
+    blueprints_repo_revision: ${BLUEPRINT_REVISION}
+    addons_repo_revision: ${ADDONS_REVISION}
+    argocd_project_name: ${CLUSTER_NAME}
+    aws_account_id: '${AWS_ACCOUNT_ID}'
+    aws_region: ${AWS_REGION}
+    eks_apps_subdomain: ${EKS_APPS_SUBDOMAIN}
+    lb_certificate_arn: ${LB_CERTIFICATE_ARN}
+    lb_external_subnets: ${LB_EXTERNAL_SUBNETS}
+    vpc_id: ${VPC_ID}
+    eks_nlb_sg_id: ${EKS_NLB_SG_ID}
+  name: ${CLUSTER_NAME}-cluster-secret
+  namespace: argocd
+type: Opaque
+stringData:
+  name: ${CLUSTER_NAME}
+  server: ${CLUSTER_ENDPOINT}
+  config: |
+          {
+            "awsAuthConfig": {
+              "clusterName": "${CLUSTER_NAME}",
+              "roleArn": "${ROLEARN}"
+            },
+            "tlsClientConfig": {
+              "insecure": false,
+              "caData": "${CDATA}"
+            }
+          }
+
+
+
+==========================================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ${app_project_name}
+  namespace: argocd
+  # Finalizer that ensures that project is not deleted until it is not referenced by any application
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: project for spoke clusters
+  # Allow manifests to deploy from any Git repos
+  sourceRepos:
+  - '*'
+  # Only permit applications to deploy to the guestbook namespace in the same cluster
+  destinations:
+    - namespace: '*'
+      server: '${cluster_endpoint}'
+  # Deny all cluster-scoped resources from being created, except for Namespace
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  # Allow all namespaced-scoped resources to be created, except for ResourceQuota, LimitRange, NetworkPolicy
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+
+===============================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: addons
+  namespace: argocd
+spec:
+  project: hub
+  source:
+    repoURL: https://gitlab.com/cloud8870409/k8s/k8s-gitops-bp.git
+    targetRevision: "master"
+    path: "${ADDONS_PATH}"
+    directory:
+      recurse: true 
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated: # automated sync by default retries failed attempts 5 times with following delays between attempts ( 5s, 10s, 20s, 40s, 80s ); retry controlled using `retry` field.
+      prune: true # Specifies if resources should be pruned during auto-syncing ( false by default ).
+      selfHeal: true # Specifies if partial app sync should be executed when resources are changed only in target Kubernetes cluster and no git change detected ( false by default ).
+      allowEmpty: false # Allows deleting all application resources during automatic syncing ( false by default ).
+
+
+=========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+    environment: ${ENVIRONMENT}
+    in_cluster: "true"
+%{ for addon in blueprints ~}
+    "addon/${addon}": "true"
+%{ endfor ~}
+  annotations:
+    aws_cluster_name: ${CLUSTER_NAME}
+    eks_service_host: ${CLUSTER_ENDPOINT}
+    addons_repo_url: https://gitlab.com/cloud8870409/k8s/k8s-gitops-bp.git
+    blueprints_repo_revision: ${BLUEPRINT_REVISION}
+    addons_repo_revision: ${ADDONS_REVISION}
+    aws_region: us-west-2
+    argocd_project_name: hub
+    aws_account_id: '${AWS_ACCOUNT_ID}'
+    aws_region: ${AWS_REGION}
+    eks_apps_subdomain: ${EKS_APPS_SUBDOMAIN}
+    vpc_id: ${VPC_ID}
+    lb_certificate_arn: ${LB_CERTIFICATE_ARN}
+    lb_external_subnets: ${LB_EXTERNAL_SUBNETS}
+    eks_nlb_sg_id: ${EKS_NLB_SG_ID}
+  name: ${CLUSTER_NAME}-cluster-secret
+  namespace: argocd
+type: Opaque
+stringData:
+  name: hub
+  server: https://kubernetes.default.svc
+data:
+  config: ewogICJ0bHNDbGllbnRDb25maWciOiB7CiAgICAiaW5zZWN1cmUiOiBmYWxzZQogIH0KfQo=
+===========================================================================
+#===========================================
+# Argo service account roles
+#===========================================
+
+resource "aws_iam_role" "iam_role_hub_dev_argocd_server_service_account" {
+  count              = var.create_argocd_hub_role ? 1 : 0
+  name               = "eks-${local.cluster_name}-argocd-server-sa-webidentity-role"
+  path               = "/"
+  assume_role_policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+     {
+        "Effect": "Allow",
+        "Principal": {
+            "Federated": "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${module.eks.oidc_provider}"
+        },
+        "Action": "sts:AssumeRoleWithWebIdentity",
+        "Condition": {
+            "ForAllValues:StringEquals": {
+            "${module.eks.oidc_provider}:sub": [
+            "system:serviceaccount:argocd:argocd-server",
+            "system:serviceaccount:argocd:argocd-application-controller"
+            ]
+          }
+        }
+     }
+  ]
+}
+POLICY
+}
+
+
+resource "aws_iam_policy" "iam_policy_hub_dev_argocd_sa_assume_policy" {
+  count       = var.create_argocd_hub_role ? 1 : 0
+  name        = "eks-${local.cluster_name}-argocd-server-sa-assume-policy"
+  path        = "/"
+  description = "IAM policy for ${local.cluster_name} ArgoCD server service account assume role"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Effect   = "Allow",
+        Resource = length(local.workload_argo_role_arns) > 0 ? local.workload_argo_role_arns : ["*"]
+      },
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "iam_role_hub_dev_argocd_sa_assume_policy_attachment" {
+  count      = var.create_argocd_hub_role ? 1 : 0
+  role       = aws_iam_role.iam_role_hub_dev_argocd_server_service_account[0].name
+  policy_arn = aws_iam_policy.iam_policy_hub_dev_argocd_sa_assume_policy[0].arn
+}
+
+
