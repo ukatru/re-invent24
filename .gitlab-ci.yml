@@ -1,1 +1,40 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: shared-project-applicationset
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  generators:
+    - merge:
+        mergeKeys: [server]
+        generators:
+          - clusters:
+              selector:
+                matchExpressions:
+                  - key: in_cluster
+                    operator: In
+                    values: ['true']
+          - clusters: {}
+  template:
+    metadata:
+      name: 'shared-project-{{.name}}-{{.metadata.labels.environment}}'
+    spec:
+      project: '{{.metadata.annotations.argocd_project_name}}'
+      source:
+        repoURL: 'https://gitlab.com/cloud8870409/argo-cluster-secrets.git'
+        targetRevision: 'master'
+        path: 'Projects/{{ .metadata.labels.environment }}'
+      destination:
+        namespace: 'argocd'
+        name: '{{.name}}'
+      syncPolicy:
+        automated: {}
+        syncOptions:
+          - CreateNamespace=false
+          - ApplyOutofSyncOnly=true
 
