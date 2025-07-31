@@ -1,1 +1,68 @@
 
+Spoken Introduction (1–2 mins)
+Hi everyone, I’m [Your Name], and I recently joined to help build and scale the Kubernetes infrastructure for our data platform. One of the key initiatives 
+I’ve led is adopting a GitOps approach to manage our EKS infrastructure and add-ons more efficiently.
+
+In today’s demo, I’ll walk you through how we’ve structured our GitOps workflow, how Argo CD fits into that, and how we’re using it to manage and deploy our EKS add-ons and infrastructure components in a declarative, 
+automated, and auditable way.
+
+🧩 Key Concepts to Explain Before the Demo
+Why GitOps for EKS Add-ons & Infra
+
+Declarative and version-controlled management of infra
+
+Easy rollback and audit history
+
+Enables self-service with guardrails
+
+Git Repository Structure
+
+Separate repos or directories for infra vs apps
+
+Use of Kustomize/Helm (if applicable)
+
+Folder structure example:
+
+lua
+Copy
+Edit
+└── eks-infra/
+    ├── addons/
+    │   ├── cert-manager/
+    │   ├── aws-load-balancer-controller/
+    └── clusters/
+        └── dev/
+        └── prod/
+Argo CD’s Role in GitOps
+
+Continuously monitors Git for changes
+
+Syncs desired state with actual cluster state
+
+Provides a UI & CLI to view/apply/rollback changes
+
+🖥️ Demo Flow Suggestion
+Show the Git Repo
+
+Point out where EKS add-ons are defined (e.g., YAML, Helm charts)
+
+Show how a typical change is made (e.g., version bump for an add-on)
+
+Show Argo CD UI
+
+Live view of the cluster’s state
+
+Explain sync status, drift detection, history, etc.
+
+Make a Live Change
+
+Modify a config (e.g., enable a new feature or update Helm chart version)
+
+Commit and push the change
+
+Show Argo CD picking it up and syncing
+
+Bonus (if time): Show rollback or use Argo CD CLI
+
+🔚 Wrap-up / Closing
+To summarize, GitOps with Argo CD has helped us manage EKS infrastructure more reliably and transparently. It gives us a clear, auditable, and automated way to manage Kubernetes add-ons and cluster state, which is critical as we scale our data platform.
