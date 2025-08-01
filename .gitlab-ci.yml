@@ -1,68 +1,62 @@
+resource "aws_secretsmanager_secret" "argocd_cluster_secret" {
+  name        = "k8s/argocd/clusters/${local.cluster_name}-secret.yaml"
+  description = "ArgoCD cluster configuration for ${local.cluster_name} in ${var.env} environment"
+  recovery_window_in_days = 7
 
-Spoken Introduction (1–2 mins)
-Hi everyone, I’m [Your Name], and I recently joined to help build and scale the Kubernetes infrastructure for our data platform. One of the key initiatives 
-I’ve led is adopting a GitOps approach to manage our EKS infrastructure and add-ons more efficiently.
+  tags = {
+    Environment = var.env
+    Cluster     = local.cluster_name
+    ManagedBy   = "Terraform"
+  }
+}
 
-In today’s demo, I’ll walk you through how we’ve structured our GitOps workflow, how Argo CD fits into that, and how we’re using it to manage and deploy our EKS add-ons and infrastructure components in a declarative, 
-automated, and auditable way.
+resource "aws_secretsmanager_secret_version" "argocd_cluster_secret_version" {
+  secret_id     = aws_secretsmanager_secret.argocd_cluster_secret.id
+  secret_string = jsonencode({
+    name = local.cluster_name
+    server = module.eks.cluster_endpoint
+    config = jsonencode({ 
+        awsAuthConfig = {
+            clusterName = module.eks.cluster_name
+            roleArn = "arn:aws:iam::${var.aws_account_id}:role/${local.cluster_name}-irsa-external-secrets-role"
+        }
+        tlsClientConfig = {
+            insecure = false
+            caData = module.eks.cluster_certificate_authority_data
+        }
+    })
+  })
+}
 
-🧩 Key Concepts to Explain Before the Demo
-Why GitOps for EKS Add-ons & Infra
+resource "local_file" "argocd_cluster_external_secret" {
+  content = templatefile("${path.module}/templates/argo-cluster-external-secret.yaml.tpl", {
+    AWS_ACCOUNT_ID = var.aws_account_id
+    AWS_REGION = var.aws_region
+    CLUSTER_NAME = local.cluster_name
+    CLUSTER_VERSION = module.eks.cluster_version
+    ENVIRONMENT = var.env
+    ADDON_LABELS = join("\n          ", [for add in local.merged_blueprints : "addon/${add}: \"true\""])
+  })
+  filename = "${path.module}/argo-cluster-external-secret-${local.cluster_name}.yaml"
+}
 
-Declarative and version-controlled management of infra
+resource "gitlab_repository_file" "kubernetes_shared_cluster_yaml_file" {
+  #count          = var.store_in_gitlab ? 1 : 0
+  project        = 59257806
+  file_path      = "secrets/${var.env}/${local.cluster_name}-external-secret.yaml"
+  branch         = "master"
+  content        = local_file.argocd_cluster_external_secret.content
+  author_email   = "uma.katru@gmail.com"
+  author_name    = "Terraform"
+  commit_message = "${local.cluster_name} external secret manifest added"
+  #encoding       = "text"
+}
 
-Easy rollback and audit history
-
-Enables self-service with guardrails
-
-Git Repository Structure
-
-Separate repos or directories for infra vs apps
-
-Use of Kustomize/Helm (if applicable)
-
-Folder structure example:
-
-lua
-Copy
-Edit
-└── eks-infra/
-    ├── addons/
-    │   ├── cert-manager/
-    │   ├── aws-load-balancer-controller/
-    └── clusters/
-        └── dev/
-        └── prod/
-Argo CD’s Role in GitOps
-
-Continuously monitors Git for changes
-
-Syncs desired state with actual cluster state
-
-Provides a UI & CLI to view/apply/rollback changes
-
-🖥️ Demo Flow Suggestion
-Show the Git Repo
-
-Point out where EKS add-ons are defined (e.g., YAML, Helm charts)
-
-Show how a typical change is made (e.g., version bump for an add-on)
-
-Show Argo CD UI
-
-Live view of the cluster’s state
-
-Explain sync status, drift detection, history, etc.
-
-Make a Live Change
-
-Modify a config (e.g., enable a new feature or update Helm chart version)
-
-Commit and push the change
-
-Show Argo CD picking it up and syncing
-
-Bonus (if time): Show rollback or use Argo CD CLI
-
-🔚 Wrap-up / Closing
-To summarize, GitOps with Argo CD has helped us manage EKS infrastructure more reliably and transparently. It gives us a clear, auditable, and automated way to manage Kubernetes add-ons and cluster state, which is critical as we scale our data platform.
+resource "local_file" "argocd_shared_project" {
+  count = var.spoke_cluster ? 1 : 0
+  content = templatefile("${path.module}/templates/app-project-template.yaml.tpl", {
+    app_project_name = "${local.cluster_name}"
+    cluster_endpoint = module.eks.cluster_endpoint
+  })
+  filename = "${path.module}/argo-project-shared.yaml"
+}
