@@ -60,3 +60,43 @@ resource "local_file" "argocd_shared_project" {
   })
   filename = "${path.module}/argo-project-shared.yaml"
 }
+
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: argocd-cluster-${CLUSTER_NAME}
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager-store
+  target:
+    name: cluster-${CLUSTER_NAME}
+    creationPolicy: Owner
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: cluster
+          environment: ${ENVIRONMENT}
+          in_cluster: "false"
+          ${ADDON_LABELS}
+        annotations:
+          aws_account_id: ${AWS_ACCOUNT_ID}
+          aws_region: ${AWS_REGION}
+          cluster_name: ${CLUSTER_NAME}
+          cluster_version: ${CLUSTER_VERSION}
+  data:
+  - secretKey: name
+    remoteRef:
+      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
+      property: name
+  - secretKey: server
+    remoteRef:
+      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
+      property: server
+  - secretKey: config
+    remoteRef:
+      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
+      property: config
