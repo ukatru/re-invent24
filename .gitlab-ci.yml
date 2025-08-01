@@ -15,16 +15,18 @@ resource "aws_secretsmanager_secret_version" "argocd_cluster_secret_version" {
   secret_string = jsonencode({
     name = local.cluster_name
     server = module.eks.cluster_endpoint
-    config = jsonencode({ 
-        awsAuthConfig = {
-            clusterName = module.eks.cluster_name
-            roleArn = "arn:aws:iam::${var.aws_account_id}:role/${local.cluster_name}-irsa-external-secrets-role"
-        }
-        tlsClientConfig = {
-            insecure = false
-            caData = module.eks.cluster_certificate_authority_data
-        }
-    })
+    config = <<-EOT
+{
+  "awsAuthConfig": {
+    "clusterName": "${module.eks.cluster_name}",
+    "roleARN": "arn:aws:iam::${var.aws_account_id}:role/${local.cluster_name}-irsa-external-secrets-role"
+  },
+  "tlsClientConfig": {
+    "insecure": false,
+    "caData": "${module.eks.cluster_certificate_authority_data}"
+  }
+}
+EOT
   })
 }
 
@@ -62,6 +64,8 @@ resource "local_file" "argocd_shared_project" {
 }
 
 
+
+
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
@@ -76,6 +80,7 @@ spec:
     name: cluster-${CLUSTER_NAME}
     creationPolicy: Owner
     template:
+      type: Opaque
       metadata:
         labels:
           argocd.argoproj.io/secret-type: cluster
