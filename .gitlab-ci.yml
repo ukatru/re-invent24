@@ -1,107 +1,14 @@
-resource "aws_secretsmanager_secret" "argocd_cluster_secret" {
-  name        = "k8s/argocd/clusters/${local.cluster_name}-secret.yaml"
-  description = "ArgoCD cluster configuration for ${local.cluster_name} in ${var.env} environment"
-  recovery_window_in_days = 7
+# setup docker
+RUN install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc
 
-  tags = {
-    Environment = var.env
-    Cluster     = local.cluster_name
-    ManagedBy   = "Terraform"
-  }
-}
+RUN echo "deb [arch=$(dpkg --print-architecture) \
+        signed-by=/etc/apt/keyrings/docker.asc] \
+        https://download.docker.com/linux/ubuntu \
+        $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+        | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-resource "aws_secretsmanager_secret_version" "argocd_cluster_secret_version" {
-  secret_id     = aws_secretsmanager_secret.argocd_cluster_secret.id
-  secret_string = jsonencode({
-    name = local.cluster_name
-    server = module.eks.cluster_endpoint
-    config = <<-EOT
-{
-  "awsAuthConfig": {
-    "clusterName": "${module.eks.cluster_name}",
-    "roleARN": "arn:aws:iam::${var.aws_account_id}:role/${local.cluster_name}-irsa-external-secrets-role"
-  },
-  "tlsClientConfig": {
-    "insecure": false,
-    "caData": "${module.eks.cluster_certificate_authority_data}"
-  }
-}
-EOT
-  })
-}
+RUN apt-get update && \
+    apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
 
-resource "local_file" "argocd_cluster_external_secret" {
-  content = templatefile("${path.module}/templates/argo-cluster-external-secret.yaml.tpl", {
-    AWS_ACCOUNT_ID = var.aws_account_id
-    AWS_REGION = var.aws_region
-    CLUSTER_NAME = local.cluster_name
-    CLUSTER_VERSION = module.eks.cluster_version
-    ENVIRONMENT = var.env
-    ADDON_LABELS = join("\n          ", [for add in local.merged_blueprints : "addon/${add}: \"true\""])
-  })
-  filename = "${path.module}/argo-cluster-external-secret-${local.cluster_name}.yaml"
-}
-
-resource "gitlab_repository_file" "kubernetes_shared_cluster_yaml_file" {
-  #count          = var.store_in_gitlab ? 1 : 0
-  project        = 59257806
-  file_path      = "secrets/${var.env}/${local.cluster_name}-external-secret.yaml"
-  branch         = "master"
-  content        = local_file.argocd_cluster_external_secret.content
-  author_email   = "uma.katru@gmail.com"
-  author_name    = "Terraform"
-  commit_message = "${local.cluster_name} external secret manifest added"
-  #encoding       = "text"
-}
-
-resource "local_file" "argocd_shared_project" {
-  count = var.spoke_cluster ? 1 : 0
-  content = templatefile("${path.module}/templates/app-project-template.yaml.tpl", {
-    app_project_name = "${local.cluster_name}"
-    cluster_endpoint = module.eks.cluster_endpoint
-  })
-  filename = "${path.module}/argo-project-shared.yaml"
-}
-
-
-
-
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: argocd-cluster-${CLUSTER_NAME}
-  namespace: argocd
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    kind: ClusterSecretStore
-    name: aws-secrets-manager-store
-  target:
-    name: cluster-${CLUSTER_NAME}
-    creationPolicy: Owner
-    template:
-      type: Opaque
-      metadata:
-        labels:
-          argocd.argoproj.io/secret-type: cluster
-          environment: ${ENVIRONMENT}
-          in_cluster: "false"
-          ${ADDON_LABELS}
-        annotations:
-          aws_account_id: ${AWS_ACCOUNT_ID}
-          aws_region: ${AWS_REGION}
-          cluster_name: ${CLUSTER_NAME}
-          cluster_version: ${CLUSTER_VERSION}
-  data:
-  - secretKey: name
-    remoteRef:
-      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
-      property: name
-  - secretKey: server
-    remoteRef:
-      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
-      property: server
-  - secretKey: config
-    remoteRef:
-      key: k8s/argocd/clusters/${CLUSTER_NAME}-secret.yaml
-      property: config
