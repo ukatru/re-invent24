@@ -1,6 +1,61 @@
-#setup terraform
-RUN git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv && \
-    ln -s ~/.tfenv/bin/* /usr/local/bin && \
-    echo 'export PATH="$HOME/.tfenv/bin:$PATH"' >> ~/.bash_profile && \
-    tfenv install
-
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: coder-applicationset
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - merge:
+        mergeKeys: [server]
+        generators:
+          - clusters:
+              values:
+                addonChart: coder
+                namespace: coder
+              selector:
+                matchExpressions:
+                  - key: in_cluster
+                    operator: In
+                    values: ['true']
+          - clusters: {}
+  template:
+    metadata:
+      name: '{{.values.addonChart }}-{{.name}}-{{.metadata.labels.environment}}'
+    spec:
+      project: '{{.metadata.annotations.argocd_project_name}}'
+      source:
+        helm:
+          releaseName: '{{.values.addonChart}}'
+          ignoreMissingValueFiles: true
+          valueFiles:
+            - $values/environments/common/addons/{{.values.addonChart}}/values.yaml
+            - $values/environments/{{.metadata.labels.environment}}/addons/{{.values.addonChart}}/values.yaml
+            - $values/clusters/{{.name}}/addons/{{.values.addonChart}}/values.yaml
+          values: |
+            coderHost: 'coder.ekslearning.{{ .metadata.annotations.aws_account_id }}.realhandsonlabs.net'
+        repoURL: '{{.metadata.annotations.addons_repo_url}}'
+        path: 'charts/{{ .values.addonChart }}'
+        targetRevision: '{{.metadata.annotations.addons_repo_revision}}'
+      destination:
+        namespace: '{{ .values.namespace }}'
+        name: '{{ .name }}'
+      syncPolicy:
+        automated: {}
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutofSyncOnly=true
+          - validate=false
+          - HelmLint=false
+      retry:
+        limit: 5
+        backoff:
+          duration: 5s
+          maxDuration: 3m0s
+          factor: 2
