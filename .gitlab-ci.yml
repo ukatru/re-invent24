@@ -1,165 +1,142 @@
----
-apiVersion: argoproj.io/v1alpha1
-kind: ApplicationSet
-metadata:
-  name: coder-applicationset
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-spec:
-  goTemplate: true
-  goTemplateOptions: ["missingkey=error"]
-  syncPolicy:
-    preserveResourcesOnDeletion: false
-  generators:
-    - merge:
-        mergeKeys: [server]
-        generators:
-          - clusters:
-              values:
-                addonChart: coder
-                namespace: coder
-              selector:
-                matchExpressions:
-                  - key: in_cluster
-                    operator: In
-                    values: ['true']
-          - clusters: {}
-  template:
-    metadata:
-      name: '{{.values.addonChart }}-{{.name}}-{{.metadata.labels.environment}}'
-    spec:
-      project: '{{.metadata.annotations.argocd_project_name}}'
-      source:
-        helm:
-          releaseName: '{{.values.addonChart}}'
-          ignoreMissingValueFiles: true
-          valueFiles:
-            - $values/environments/common/addons/{{.values.addonChart}}/values.yaml
-            - $values/environments/{{.metadata.labels.environment}}/addons/{{.values.addonChart}}/values.yaml
-            - $values/clusters/{{.name}}/addons/{{.values.addonChart}}/values.yaml
-          values: |
-            coderHost: 'coder.ekslearning.{{ .metadata.annotations.aws_account_id }}.realhandsonlabs.net'
-        repoURL: '{{.metadata.annotations.addons_repo_url}}'
-        path: 'charts/{{ .values.addonChart }}'
-        targetRevision: '{{.metadata.annotations.addons_repo_revision}}'
-      destination:
-        namespace: '{{ .values.namespace }}'
-        name: '{{ .name }}'
-      syncPolicy:
-        automated: {}
-        syncOptions:
-          - CreateNamespace=true
-          - ApplyOutofSyncOnly=true
-          - validate=false
-          - HelmLint=false
-      retry:
-        limit: 5
-        backoff:
-          duration: 5s
-          maxDuration: 3m0s
-          factor: 2
-----------------------------
-coder:
-  coder:
-    # You can specify any environment variables you'd like to pass to Coder
-    # here. Coder consumes environment variables listed in
-    # `coder server --help`, and these environment variables are also passed
-    # to the workspace provisioner (so you can consume them in your Terraform
-    # templates for auth keys etc.).
-    #
-    # Please keep in mind that you should not set `CODER_HTTP_ADDRESS`,
-    # `CODER_TLS_ENABLE`, `CODER_TLS_CERT_FILE` or `CODER_TLS_KEY_FILE` as
-    # they are already set by the Helm chart and will cause conflicts.
-    env:
-      - name: CODER_PG_CONNECTION_URL
-        valueFrom:
-          secretKeyRef:
-            # You'll need to create a secret called coder-db-url with your
-            # Postgres connection URL like:
-            # postgres://coder:password@postgres:5432/coder?sslmode=disable
-            name: coder-db-url
-            key: url
-      # For production deployments, we recommend configuring your own GitHub
-      # OAuth2 provider and disabling the default one.
-      - name: CODER_OAUTH2_GITHUB_DEFAULT_PROVIDER_ENABLE
-        value: "false"
+image: registry.gitlab.com/cloud8870409/containers/aws-cli-container:latest
 
-      # (Optional) For production deployments the access URL should be set.
-      # If you're just trying Coder, access the dashboard via the service IP.
-      #- name: CODER_ACCESS_URL
-      #  value: "https://coder.ekslearning.767397688701.realhandsonlabs.net"
+services:
+  - name: docker:dind
+    entrypoint: ["env", "-u", "DOCKER_HOST"]
+    command: ["dockerd-entrypoint.sh"]
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  appName: python-sample-pack
 
-    #tls:
-    #  secretNames:
-    #    - my-tls-secret-name
-    service:
-      enable: true
-      type: ClusterIP
-    ingress:
-      enable: true
-        # The hostname to use for the ingress. This is the URL you will use to
-        # access Coder. If you are using a custom domain, make sure to set up
-        # the DNS records to point to the load balancer.
-      host: coder.ekslearning.654654582602.realhandsonlabs.net
-      annotations:
-        # The ingress class to use for the ingress. This is used to specify
-        # which ingress controller to use. If you are using AWS, you can
-        # use the ALB ingress controller.
-        kubernetes.io/ingress.class: alb
-        # The ALB ingress controller will automatically create a load balancer
-        # for you. You can specify the type of load balancer to create here.
-        alb.ingress.kubernetes.io/load-balancer-type: application
-        # The ALB ingress controller will automatically create a target group
-        # for you. You can specify the type of target group to create here.
-        alb.ingress.kubernetes.io/target-type: ip
-        alb.ingress.kubernetes.io/scheme: internet-facing
-        alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-west-2:654654582602:certificate/0464607c-059d-4412-bc49-5cea0e9f03dd
-        #alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-        #alb.ingress.kubernetes.io/ssl-redirect: '443'
-        # The ALB ingress controller will automatically create a security group
-        # for you. You can specify the type of security group to create here.
-        # The TLS secret to use for the ingress. This is used to terminate TLS
-        # at the ingress controller. Make sure to create this secret in the
-        # same namespace as Coder.
-        #tlsSecret: tls-cert
+stages:
+  - Build
+  - test
+  - Deploy
 
-  #external-dns.alpha.kubernetes.io/hostname: coder.ekslearning.767397688701.realhandsonlabs.net
-  #service.beta.kubernetes.io/aws-load-balancer-backend-protocol: http
-  #service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-  #service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-  #service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:us-west-2:767397688701:certificate/8974808c-117c-4a81-bf7c-98f236a01855
-  #service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
-  #service.beta.kubernetes.io/aws-load-balancer-type: nlb
+.packSetup: &packSetup |-
+  (curl -sSL "https://github.com/buildpacks/pack/releases/download/v0.33.2/pack-v0.33.2-linux.tgz" | tar -C /usr/local/bin/ --no-same-owner -xzv pack)
+  pack --version
+  export CONTAINER_ID=$(docker ps -q -f "label=com.gitlab.gitlab-runner.job.id=$CI_JOB_ID" -f "label=com.gitlab.gitlab-runner.type=build")
+  export MOUNT_NAME=$(docker inspect $CONTAINER_ID --format "{{ range .Mounts }}{{ if eq .Destination \"/builds\" }}{{ .Source }}{{ end }}{{ end }}")
+  MOUNT_POINT=$MOUNT_NAME/$CI_PROJECT_PATH/${assetProjectPath:-.}/bindings
+  pack config trusted-builders add paketobuildpacks/builder-jammy-base:0.4.281
+  pack config default-builder paketobuildpacks/builder-jammy-base:0.4.281
+  RUN_IMAGE=index.docker.io/paketobuildpacks/run-jammy-base:0.1.107
+  
+.setupPython: &setupPython |-
+  mkdir -p bindings/dependency-mapping
+  echo "dependency-mapping" > bindings/dependency-mapping/type
+  # python 2.16.0 docker://gcr.io/paketo-buildpacks/python:2.16.0
+  echo "https://github.com/watchexec/watchexec/releases/download/v1.25.1/watchexec-1.25.1-x86_64-unknown-linux-musl.tar.xz" > bindings/dependency-mapping/f120752ae92a579d40956ebf527fba8cf8a953718b669d1e446ee072cbfd0bd5
+  echo "https://github.com/watchexec/watchexec/releases/download/v1.25.1/watchexec-1.25.1-aarch64-unknown-linux-musl.tar.xz" > bindings/dependency-mapping/e235f2c326122e108dc2c491252487aa596fe4894a1194f7c6dd0b6f728738bb
+  echo "https://artifacts.paketo.io/python/python_3.8.17_linux_x64_jammy_c2b84799.tgz" > bindings/dependency-mapping/c2b8479969814d55f909eda94d56aa51d6aec281d121b22f4b186f36539a8b65
+  echo "https://artifacts.paketo.io/python/python_3.8.17_linux_x64_bionic_4a04d5c3.tgz" > bindings/dependency-mapping/4a04d5c37ea14e0e4e99727ca4688261a3ee24b69b39bbd314f38d9be9bb0bfb
+  echo "https://www.python.org/ftp/python/3.8.17/Python-3.8.17.tgz" > bindings/dependency-mapping/def428fa6cf61b66bcde72e3d9f7d07d33b2e4226f04f9d6fce8384c055113ae
+  echo "https://artifacts.paketo.io/python/python_3.8.18_linux_x64_jammy_58676489.tgz" > bindings/dependency-mapping/58676489295f41a709123a3d5ebcf743db5ac028d0c034730e7355d50db4c13e
+  echo "https://artifacts.paketo.io/python/python_3.8.18_linux_x64_bionic_bcc59a7f.tgz" > bindings/dependency-mapping/bcc59a7fa44a4bdbe9bc3a2549cdf0be161fb1e954769cccaf9d43630543b50b
+  echo "https://www.python.org/ftp/python/3.8.18/Python-3.8.18.tgz" > bindings/dependency-mapping/7c5df68bab1be81a52dea0cc2e2705ea00553b67107a301188383d7b57320b16
+  echo "https://artifacts.paketo.io/python/python_3.9.17_linux_x64_jammy_39edd64e.tgz" > bindings/dependency-mapping/39edd64ed7756d1626828284abab756d6d3785b1efe7deb8e95009563db6328b
+  echo "https://artifacts.paketo.io/python/python_3.9.17_linux_x64_bionic_e12fa5d3.tgz" > bindings/dependency-mapping/e12fa5d36ffc615a6351cc048cd8d8805096692cc3154000b39b5dcdef6d8826
+  echo "https://www.python.org/ftp/python/3.9.17/Python-3.9.17.tgz" > bindings/dependency-mapping/8ead58f669f7e19d777c3556b62fae29a81d7f06a7122ff9bc57f7dd82d7e014
+  echo "https://artifacts.paketo.io/python/python_3.9.18_linux_x64_jammy_26e47486.tgz" > bindings/dependency-mapping/26e47486aaf03c1f4c9cb6a492f15f72f5b0d5145f8d1edf801dc3f241f503a6
+  echo "https://artifacts.paketo.io/python/python_3.9.18_linux_x64_bionic_688350eb.tgz" > bindings/dependency-mapping/688350eb4d393d2f26a3649d6aecafc9494083935c2dfa94e916b50736421968
+  echo "https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz" > bindings/dependency-mapping/504ce8cfd59addc04c22f590377c6be454ae7406cb1ebf6f5a350149225a9354
+  echo "https://artifacts.paketo.io/python/python_3.10.12_linux_x64_jammy_68e8a7c2.tgz" > bindings/dependency-mapping/68e8a7c2414d8fb1470ded67e642d38ea196eaf79d7cec03135ca09fad39d0d8
+  echo "https://artifacts.paketo.io/python/python_3.10.12_linux_x64_bionic_6da6507b.tgz" > bindings/dependency-mapping/6da6507b493843a884b7308ea32674e0d05dbcec9eee84c5360ca5d9ab8cd0ea
+  echo "https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz" > bindings/dependency-mapping/a43cd383f3999a6f4a7db2062b2fc9594fefa73e175b3aedafa295a51a7bb65c
+  echo "https://artifacts.paketo.io/python/python_3.10.13_linux_x64_jammy_8ba9a081.tgz" > bindings/dependency-mapping/8ba9a08177147d9f33a15370cb52552ca4af139c948cfb30a6ea1929fd71ec47
+  echo "https://artifacts.paketo.io/python/python_3.10.13_linux_x64_bionic_19a092d0.tgz" > bindings/dependency-mapping/19a092d051de19e076a5fe051a611d3ba0c705993ff618f302041cde48fe16f7
+  echo "https://www.python.org/ftp/python/3.10.13/Python-3.10.13.tgz" > bindings/dependency-mapping/698ec55234c1363bd813b460ed53b0f108877c7a133d48bde9a50a1eb57b7e65
+  echo "https://artifacts.paketo.io/python/python_3.11.7_linux_x64_jammy_4403f163.tgz" > bindings/dependency-mapping/4403f163ab192f541e3063681da91acb2ad6c94d560fa83caab8087ee7865338
+  echo "https://artifacts.paketo.io/python/python_3.11.7_linux_x64_bionic_46308d17.tgz" > bindings/dependency-mapping/46308d171faaa825ec24573a5acc56cd9bef45656f592152cbe19db75d73af25
+  echo "https://www.python.org/ftp/python/3.11.7/Python-3.11.7.tgz" > bindings/dependency-mapping/068c05f82262e57641bd93458dfa883128858f5f4997aad7a36fd25b13b29209
+  echo "https://artifacts.paketo.io/python/python_3.11.8_linux_x64_jammy_569af6f3.tgz" > bindings/dependency-mapping/569af6f3e797f3336da69c67272f51493493206adc39f90bce9410e7782e29eb
+  echo "https://artifacts.paketo.io/python/python_3.11.8_linux_x64_bionic_b1b60a01.tgz" > bindings/dependency-mapping/b1b60a0153ce4fb9558ac63c88cb302c28e81e16659c2926dac1d568783b0fff
+  echo "https://www.python.org/ftp/python/3.11.8/Python-3.11.8.tgz" > bindings/dependency-mapping/d3019a613b9e8761d260d9ebe3bd4df63976de30464e5c0189566e1ae3f61889
+  echo "https://artifacts.paketo.io/python/python_3.12.1_linux_x64_jammy_e595960a.tgz" > bindings/dependency-mapping/e595960a918ba9eff1b102a1a6efb3a242b454cb13e99ab109b2ec04767e2b5d
+  echo "https://artifacts.paketo.io/python/python_3.12.1_linux_x64_bionic_f5d2bff9.tgz" > bindings/dependency-mapping/f5d2bff94b5858f3a385813e42e64738201f817afb9037ecf32a6c77baea66c3
+  echo "https://www.python.org/ftp/python/3.12.1/Python-3.12.1.tgz" > bindings/dependency-mapping/d01ec6a33bc10009b09c17da95cc2759af5a580a7316b3a446eb4190e13f97b2
+  echo "https://artifacts.paketo.io/python/python_3.12.2_linux_x64_jammy_aca1ad62.tgz" > bindings/dependency-mapping/aca1ad6266821d090f44466e8c01f2c41fb33da12d1c650d70ba555809abc55b
+  echo "https://artifacts.paketo.io/python/python_3.12.2_linux_x64_bionic_b1593a6d.tgz" > bindings/dependency-mapping/b1593a6d50a321ba99603dde97b277150f0b7c8a37dc351a194f14edc51ceeb7
+  echo "https://www.python.org/ftp/python/3.12.2/Python-3.12.2.tgz" > bindings/dependency-mapping/a7c4f6a9dc423d8c328003254ab0c9338b83037bd787d680826a5bf84308116e
+  echo "https://artifacts.paketo.io/pip/pip_23.3.1_noarch_4a24f025.tgz" > bindings/dependency-mapping/4a24f0252c2351464f576c8c7a7553f8a6449f6a9d7fa24b5de49b269a1eb23d
+  echo "https://artifacts.paketo.io/pip/pip_23.3.2_noarch_07c43651.tgz" > bindings/dependency-mapping/07c436516c7980004b7a4a273f1ad0e2a78a3f63dabb95d9f19ab3c120a9b6eb
+  echo "https://files.pythonhosted.org/packages/6f/02/6aa9fdde1a235bdf70395ac4d94127186398e6511722c4d5e0c600918a2e/pipenv-2023.12.0.tar.gz" > bindings/dependency-mapping/067b1c94a7807f424f63660be8b4c1886b6b9db99bd80d223794da273cc4589c
+  echo "https://files.pythonhosted.org/packages/a6/26/5cdf9f0c6eb835074c3e43dde2880bfa739daa23fa534a5dd65848af5913/pipenv-2023.12.1.tar.gz" > bindings/dependency-mapping/4aea73e23944e464ad2b849328e780ad121c5336e1c24a7ac15aa493c41c2341
+  echo "https://repo.anaconda.com/miniconda/Miniconda3-py39_23.10.0-1-Linux-x86_64.sh" > bindings/dependency-mapping/3dbb87a74f80c84ae166a380bf51da8ef75699ce97c234e3e196afa20d1a9319
+  echo "https://files.pythonhosted.org/packages/b8/49/7d3d8f79356ded464ece366d9b77cc69fed3647debe358619c1c2f307734/poetry-1.6.0.tar.gz" > bindings/dependency-mapping/77324092ab3b3f975a87a2893a53152cbac7853c8359204b828f0d96f078e4c7
+  echo "https://files.pythonhosted.org/packages/c6/5f/f60c900299e05736900a732f079a306b762d1343e47d965862d140b6e550/poetry-1.6.1.tar.gz" > bindings/dependency-mapping/0ab9b1a592731cc8b252b8d6aaeea19c72cc0a109d7468b829ad57e6c48039d2
+  echo "https://files.pythonhosted.org/packages/c5/ff/d37625b6d2fe7f3b5a784da4684b011cc56b599f4d9aa249dac7e96b271a/poetry-1.7.0.tar.gz" > bindings/dependency-mapping/796e2866f35cb57af36280a890f5a5b3f9ef1a2dcf780b945b02be2e82895391
+  echo "https://files.pythonhosted.org/packages/bb/cf/cfdd5ab997bdb51a29c5f1d1925c409c58d5e504062c105dc0d82ec9e7c5/poetry-1.7.1.tar.gz" > bindings/dependency-mapping/b348a70e7d67ad9c0bd3d0ea255bc6df84c24cf4b16f8d104adb30b425d6ff32
 
------------------------------------
-apiVersion: v2
-name: coder
-description: A Helm chart for coder
+.computeImageName: &computeImageName |-
+  echo "python-image" > IMAGE_NAME
 
-# A chart can be either an 'application' or a 'library' chart.
-#
-# Application charts are a collection of templates that can be packaged into versioned archives
-# to be deployed.
-#
-# Library charts provide useful utilities or functions for the chart developer. They're included as
-# a dependency of application charts to inject those utilities and functions into the rendering
-# pipeline. Library charts do not define any templates and therefore cannot be deployed.
-type: application
+.saveImage: &saveImage |-
+  imageSaveLocation=images
+  echo imageSaveLocation=$imageSaveLocation
+  mkdir -p $imageSaveLocation
+  docker save python-image | gzip > $imageSaveLocation/python-image.tar.gz
+  echo "1.0.0" > IMAGE_TAG
+  echo "python-image" > IMAGE_NAME
+  echo "$imageSaveLocation/python-image.tar.gz" > IMAGE_PATH
 
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates, including the app version.
-# Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.1.0
+.buildImage:
+  artifacts:
+    paths:
+      - "**/IMAGE_TAG"
+      - "**/IMAGE_NAME"
+      - "**/IMAGE_PATH"
+      - "**/images/*"
+      - "**/build-time-sbom"
+      - "**/run-time-bom"
 
-# This is the version number of the application being deployed. This version number should be
-# incremented each time you make changes to the application. Versions are not expected to
-# follow Semantic Versioning. They should reflect the version the application is using.
-appVersion: "1.0.0"
+.buildPythonImage:
+  extends: .buildImage
+  script:
+    - *packSetup
+    #- *setupPython
+    - |
+      echo pack build "python-image" \
+        --run-image $RUN_IMAGE \
+        --buildpack "docker://gcr.io/paketo-buildpacks/python:2.16.0" \
+        --env BP_EMBED_CERTS=true \
+        --env CI=true \
+        --env BP_OCI_TITLE="$CI_PROJECT_TITLE" \
+        --env BP_OCI_URL="$CI_PROJECT_URL" \
+        --env BP_OCI_CREATED="$CI_JOB_STARTED_AT" \
+        --env BP_OCI_REVISION="$CI_COMMIT_SHA" \
+        --env BP_OCI_VERSION="$CI_COMMIT_REF_NAME" \
+        --sbom-output-dir ./build-time-sbom
+      pack build "python-image" \
+        --run-image $RUN_IMAGE \
+        --buildpack "docker://gcr.io/paketo-buildpacks/python:2.16.0" \
+        --env BP_EMBED_CERTS=true \
+        --env CI=true \
+        --env BP_OCI_TITLE="$CI_PROJECT_TITLE" \
+        --env BP_OCI_URL="$CI_PROJECT_URL" \
+        --env BP_OCI_CREATED="$CI_JOB_STARTED_AT" \
+        --env BP_OCI_REVISION="$CI_COMMIT_SHA" \
+        --env BP_OCI_VERSION="$CI_COMMIT_REF_NAME" \
+        --volume $MOUNT_POINT:/platform/bindings \
+        --sbom-output-dir ./build-time-sbom
+    - export dockerOutputFileName="savedImage"
+    - *saveImage
 
-dependencies:
-- name: coder
-  version: "2.20.2"
-  repository:  https://helm.coder.com/v2
+Build:
+  stage: Build
+  extends: .buildPythonImage
 
----------------
+PushImage:
+  stage: Deploy
+  variables:
+    imageName: python-image
+  script:
+    - |
+      docker load < images/python-image.tar.gz
+      docker login -u ukatru -p $DOCKER_REGISTRY_PASSWORD docker.io
+      docker tag python-image docker.io/ukatru/mypocrepo:$CI_PIPELINE_IID
+      docker push docker.io/ukatru/mypocrepo:$CI_PIPELINE_IID
+
