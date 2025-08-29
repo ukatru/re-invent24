@@ -1,1 +1,8 @@
+“We use Dagster Cloud to orchestrate and schedule our data pipelines. For this hackathon, I built a data hydration workflow in Dagster, deployed it to the cloud, and today I’ll show you how the assets can be visualized and materialized in the UI.”
 
+
+“From code to cloud: orchestrating data workflows with Dagster.”
+
+“Our data platform engineering team leverages Dagster Cloud as the orchestration and scheduling layer for our data pipelines.
+As part of the hackathon, I built a data hydration workflow using Dagster, defined assets, and then deployed the automation into Dagster Cloud.
+In this demo, I’ll show how those assets appear in the Dagster UI and walk through the process of materializing them.”
