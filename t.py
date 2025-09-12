@@ -310,3 +310,83 @@ resource "aws_iam_policy" "bucket_write_policy" {
 
   policy = data.aws_iam_policy_document.bucket_write_policy_document.json
 }
+
+
+
+provider "aws" {
+    alias = "primary"
+}
+
+provider "aws" {
+    alias = "secondary"
+}
+
+variable "default_tags" {
+    type = "map"
+    default = {}
+}
+
+variable "application_tags" {
+    type = "map"
+    default = {}
+}
+
+variable "data_catalog_tags" {
+    type = "map"
+    default = {
+        description = ""
+        data_catalog_link = ""
+        data_custodian = ""
+        data_owner = ""
+        data_steward = ""
+        data_sensitivity = ""
+        data_taxonomy = ""
+        data_source_location = ""
+        source_control_location = ""
+        cost_center = ""
+        application-id = ""
+    }
+}
+
+variable "aws_account_name" {}
+
+variable "aws_s3_account_prefix" {}
+
+variable "aws_primary_region" {
+    default = "us-west-2"
+}
+
+variable "aws_secondary_region" {
+    default = "us-east-1"
+}
+
+variable "bucket_name" {}
+
+variable "bucket_env" {}
+
+variable "create_logging_bucket" {
+    type = bool
+}
+
+variable "data_tier" {
+    type = string
+}
+
+variable "force_detach_policies" {
+    type = bool
+    default = false
+}
+
+variable "bucket_policy" {
+    type = string
+    default = ""
+}
+
+variable "enable_metrics" {
+    description = "Set variable to true to enable request metrics for a bucket"
+    type = bool
+    default = false
+}
+
+
+
